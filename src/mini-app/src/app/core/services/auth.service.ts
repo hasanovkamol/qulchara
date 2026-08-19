@@ -9,7 +9,7 @@ import { TelegramService } from './telegram.service';
   providedIn: 'root'
 })
 export class AuthService {
-  private apiUrl = 'http://localhost:5000/api/auth';
+  private apiUrl = 'http://localhost:4041/api/auth';
   
   public currentRole = signal<string | null>(null);
   public isAuthenticated = signal<boolean>(false);
