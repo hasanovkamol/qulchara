@@ -3,7 +3,7 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm ci --legacy-peer-deps
 COPY . .
-RUN npm run build --configuration production
+RUN npm run build
 
 FROM nginx:alpine
 # Copy the built output from angular to nginx html folder
