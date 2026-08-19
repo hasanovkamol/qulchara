@@ -17,10 +17,16 @@ services:
       dockerfile: src/OpenBudget.Bot/Dockerfile
     ports:
       - "4041:4041"
+    env_file:
+      - .env
     environment:
       - ASPNETCORE_HTTP_PORTS=4041
       - ConnectionStrings__DefaultConnection=Server=db;Database=OpenBudgetDb;User Id=sa;Password=Your_Strong_Password_123!;TrustServerCertificate=true;
       - ASPNETCORE_ENVIRONMENT=Development
+      - TelegramBot__MainBotToken=${TELEGRAM_MAIN_BOT_TOKEN}
+      - TelegramBot__ErrorBotToken=${TELEGRAM_ERROR_BOT_TOKEN}
+      - TelegramBot__ErrorChatId=${TELEGRAM_ERROR_CHAT_ID}
+      - TelegramBot__SuperAdminIds__0=${TELEGRAM_SUPER_ADMIN_IDS}
     depends_on:
       - db
 
