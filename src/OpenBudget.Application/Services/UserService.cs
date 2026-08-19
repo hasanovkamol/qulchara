@@ -86,7 +86,17 @@ public class UserService : IUserService
         targetUser.Role = newRole;
         await _userRepository.UpdateAsync(targetUser, cancellationToken);
 
-        return (true, $"Rol muvaffaqiyatli o'zgartirildi.");
+        return (true, "Rol muvaffaqiyatli o'zgartirildi.");
+    }
+
+    public async Task UpdateRoleAsync(int userId, UserRole newRole, CancellationToken cancellationToken = default)
+    {
+        var targetUser = await _userRepository.GetByIdAsync(userId, cancellationToken);
+        if (targetUser != null)
+        {
+            targetUser.Role = newRole;
+            await _userRepository.UpdateAsync(targetUser, cancellationToken);
+        }
     }
 
     public Task<List<User>> GetAllUsersAsync(CancellationToken cancellationToken = default)

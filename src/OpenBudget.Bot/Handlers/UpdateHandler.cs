@@ -17,6 +17,7 @@ public class UpdateHandler
     private readonly AdminHandler _adminHandler;
     private readonly SuperAdminHandler _superAdminHandler;
     private readonly INotificationService _notificationService;
+    private readonly Microsoft.Extensions.Configuration.IConfiguration _configuration;
 
     public UpdateHandler(
         IUserService userService,
@@ -24,7 +25,8 @@ public class UpdateHandler
         BrokerHandler brokerHandler,
         AdminHandler adminHandler,
         SuperAdminHandler superAdminHandler,
-        INotificationService notificationService)
+        INotificationService notificationService,
+        Microsoft.Extensions.Configuration.IConfiguration configuration)
     {
         _userService = userService;
         _groupMemberHandler = groupMemberHandler;
@@ -32,6 +34,7 @@ public class UpdateHandler
         _adminHandler = adminHandler;
         _superAdminHandler = superAdminHandler;
         _notificationService = notificationService;
+        _configuration = configuration;
     }
 
     public async Task HandleUpdateAsync(ITelegramBotClient botClient, Update update, CancellationToken cancellationToken)
@@ -70,7 +73,23 @@ public class UpdateHandler
 
         var tgUser = message.From;
         var dbUser = await _userService.GetByTelegramIdAsync(tgUser.Id, cancellationToken);
-        
+        var superAdminIds = _configuration.GetSection("TelegramBot:SuperAdminIds").Get<long[]>() ?? Array.Empty<long>();
+
+        if (superAdminIds.Contains(tgUser.Id))
+        {
+            if (dbUser == null)
+            {
+                dbUser = await _userService.RegisterUserAsync(tgUser.Id, tgUser.Username, $"{tgUser.FirstName} {tgUser.LastName}".Trim(), UserRole.SuperAdmin, cancellationToken);
+                await botClient.SendMessage(message.Chat.Id, "Siz tizimga SuperAdmin sifatida muvaffaqiyatli qo'shildingiz!", cancellationToken: cancellationToken);
+            }
+            else if (dbUser.Role != UserRole.SuperAdmin)
+            {
+                await _userService.UpdateRoleAsync(dbUser.Id, UserRole.SuperAdmin, cancellationToken);
+                dbUser.Role = UserRole.SuperAdmin;
+                await botClient.SendMessage(message.Chat.Id, "Sizning rolingiz SuperAdmin ga o'zgartirildi!", cancellationToken: cancellationToken);
+            }
+        }
+
         if (dbUser == null)
         {
             // Optional: Avto register qilishni xohlasak, shuni ishlatamiz. 
