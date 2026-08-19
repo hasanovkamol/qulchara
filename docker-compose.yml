@@ -40,5 +40,12 @@ services:
     depends_on:
       - api
 
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    command: tunnel --url http://api:4041 --no-autoupdate
+    depends_on:
+      - api
+    restart: unless-stopped
+
 volumes:
   sql_data:
