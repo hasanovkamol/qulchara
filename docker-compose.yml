@@ -27,6 +27,7 @@ services:
       - TelegramBot__ErrorBotToken=${TELEGRAM_ERROR_BOT_TOKEN}
       - TelegramBot__ErrorChatId=${TELEGRAM_ERROR_CHAT_ID}
       - TelegramBot__SuperAdminIds__0=${TELEGRAM_SUPER_ADMIN_IDS}
+      - Jwt__SecretKey=${JWT_SECRET_KEY}
     depends_on:
       - db
 
