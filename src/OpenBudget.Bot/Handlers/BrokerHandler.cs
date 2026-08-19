@@ -16,11 +16,13 @@ public class BrokerHandler
 {
     private readonly IVoteService _voteService;
     private readonly IConfiguration _configuration;
+    private readonly IUserService _userService;
 
-    public BrokerHandler(IVoteService voteService, IConfiguration configuration)
+    public BrokerHandler(IVoteService voteService, IConfiguration configuration, IUserService userService)
     {
         _voteService = voteService;
         _configuration = configuration;
+        _userService = userService;
     }
 
     public async Task HandleMessageAsync(ITelegramBotClient botClient, Message message, User dbUser, CancellationToken cancellationToken)
@@ -28,27 +30,41 @@ public class BrokerHandler
         var text = message.Text?.Trim();
         if (string.IsNullOrEmpty(text)) return;
 
+        var webAppUrl = _configuration["MiniApp:Url"] ?? "";
+        var replyMarkup = new ReplyKeyboardMarkup(new[]
+        {
+            new[] { new KeyboardButton("📝 Ovoz qo'shish"), new KeyboardButton("📋 Mening ovozlarim") },
+            new[] { new KeyboardButton("📊 Statistikam"), new KeyboardButton("📱 Mini App") { WebApp = new WebAppInfo { Url = webAppUrl } } }
+        }) { ResizeKeyboard = true };
+
         if (text == "/start")
         {
-            var webAppUrl = _configuration["MiniApp:Url"];
-            var markup = new InlineKeyboardMarkup(InlineKeyboardButton.WithWebApp("📱 Mini App ochish", new WebAppInfo { Url = webAppUrl! }));
-            
+            await _userService.UpdateStateAsync(dbUser.Id, Domain.Enums.BotState.Default, cancellationToken);
             await botClient.SendMessage(
                 chatId: message.Chat.Id,
-                text: "Salom! Ovoz berish uchun 9 xonali telefon raqamni kiriting.\n+998 avtomatik qo'shiladi.",
-                replyMarkup: markup,
+                text: "Salom Broker! Ovoz kiritish va statistikani ko'rish uchun quyidagi tugmalardan foydalaning.",
+                replyMarkup: replyMarkup,
                 cancellationToken: cancellationToken);
             return;
         }
 
-        if (text == "/myvotes")
+        if (text == "📝 Ovoz qo'shish")
         {
+            await _userService.UpdateStateAsync(dbUser.Id, Domain.Enums.BotState.WaitingForVote, cancellationToken);
+            await botClient.SendMessage(message.Chat.Id, "Ovoz berish uchun 9 xonali telefon raqamni kiriting.\n+998 avtomatik qo'shiladi.", cancellationToken: cancellationToken);
+            return;
+        }
+
+        if (text == "📋 Mening ovozlarim" || text == "/myvotes")
+        {
+            await _userService.UpdateStateAsync(dbUser.Id, Domain.Enums.BotState.Default, cancellationToken);
             await SendMyVotesAsync(botClient, message.Chat.Id, dbUser.Id, 1, cancellationToken);
             return;
         }
 
-        if (text == "/mystats")
+        if (text == "📊 Statistikam" || text == "/mystats")
         {
+            await _userService.UpdateStateAsync(dbUser.Id, Domain.Enums.BotState.Default, cancellationToken);
             var stats = await _voteService.GetBrokerStatsAsync(dbUser.Id, cancellationToken);
             var statsText = $"📊 Sizning statistikangiz\n" +
                             $"━━━━━━━━━━━━━━━━━━\n" +
@@ -57,16 +73,26 @@ public class BrokerHandler
                             $"⏳ Kutilmoqda: {stats.PendingVotes}\n" +
                             $"❌ Rad etilgan: {stats.RejectedVotes}\n" +
                             $"━━━━━━━━━━━━━━━━━━";
-            await botClient.SendMessage(message.Chat.Id, statsText, cancellationToken: cancellationToken);
+            await botClient.SendMessage(message.Chat.Id, statsText, replyMarkup: replyMarkup, cancellationToken: cancellationToken);
             return;
         }
 
         if (text.StartsWith("/")) return; // unknown command
 
-        // Attempt to add vote
-        var result = await _voteService.AddVoteAsync(dbUser.Id, text, cancellationToken);
-        var replyText = result.Success ? $"✅ {result.Message}" : $"❌ {result.Message}";
-        await botClient.SendMessage(message.Chat.Id, replyText, cancellationToken: cancellationToken);
+        if (dbUser.BotState == Domain.Enums.BotState.WaitingForVote)
+        {
+            // Attempt to add vote
+            var result = await _voteService.AddVoteAsync(dbUser.Id, text, cancellationToken);
+            var replyText = result.Success ? $"✅ {result.Message}" : $"❌ {result.Message}";
+            
+            // Go back to default state
+            await _userService.UpdateStateAsync(dbUser.Id, Domain.Enums.BotState.Default, cancellationToken);
+            await botClient.SendMessage(message.Chat.Id, replyText, replyMarkup: replyMarkup, cancellationToken: cancellationToken);
+        }
+        else
+        {
+            await botClient.SendMessage(message.Chat.Id, "Iltimos, tugmalardan foydalaning.", replyMarkup: replyMarkup, cancellationToken: cancellationToken);
+        }
     }
 
     public async Task HandleCallbackQueryAsync(ITelegramBotClient botClient, CallbackQuery callbackQuery, User dbUser, CancellationToken cancellationToken)

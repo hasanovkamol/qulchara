@@ -89,6 +89,16 @@ public class UserService : IUserService
         return (true, "Rol muvaffaqiyatli o'zgartirildi.");
     }
 
+    public async Task UpdateStateAsync(int userId, BotState state, CancellationToken cancellationToken = default)
+    {
+        var targetUser = await _userRepository.GetByIdAsync(userId, cancellationToken);
+        if (targetUser != null)
+        {
+            targetUser.BotState = state;
+            await _userRepository.UpdateAsync(targetUser, cancellationToken);
+        }
+    }
+
     public async Task UpdateRoleAsync(int userId, UserRole newRole, CancellationToken cancellationToken = default)
     {
         var targetUser = await _userRepository.GetByIdAsync(userId, cancellationToken);

@@ -124,6 +124,10 @@ public class UpdateHandler
         {
             await _brokerHandler.HandleCallbackQueryAsync(botClient, callbackQuery, dbUser, cancellationToken);
         }
+        else if (dbUser.Role == UserRole.SuperAdmin)
+        {
+            await _superAdminHandler.HandleCallbackQueryAsync(botClient, callbackQuery, dbUser, cancellationToken);
+        }
 
         // Answer callback to remove loading state
         await botClient.AnswerCallbackQuery(callbackQuery.Id, cancellationToken: cancellationToken);

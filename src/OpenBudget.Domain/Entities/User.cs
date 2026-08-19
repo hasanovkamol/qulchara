@@ -11,6 +11,7 @@ public class User
     public string? Username { get; set; }
     public string? FullName { get; set; }
     public UserRole Role { get; set; } = UserRole.Broker;
+    public BotState BotState { get; set; } = BotState.Default;
     public bool IsActive { get; set; } = true;
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime? UpdatedAt { get; set; }
