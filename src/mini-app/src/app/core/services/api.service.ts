@@ -4,14 +4,17 @@ import { Observable } from 'rxjs';
 import { PaginatedResult, Vote } from '../models/vote.model';
 import { BrokerStats, GlobalStats } from '../models/stats.model';
 import { User } from '../models/user.model';
+import { ConfigService } from './config.service';
 
 @Injectable({
   providedIn: 'root'
 })
 export class ApiService {
-  private baseUrl = 'http://localhost:4041/api';
+  constructor(private http: HttpClient, private config: ConfigService) {}
 
-  constructor(private http: HttpClient) {}
+  private get baseUrl(): string {
+    return this.config.apiUrl;
+  }
 
   // Vote Endpoints
   getBrokerVotes(page: number = 1, pageSize: number = 10): Observable<PaginatedResult<Vote>> {
@@ -49,3 +52,4 @@ export class ApiService {
     return this.http.get<GlobalStats>(`${this.baseUrl}/stats/global`);
   }
 }
+

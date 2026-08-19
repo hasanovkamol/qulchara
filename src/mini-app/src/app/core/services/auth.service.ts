@@ -4,13 +4,16 @@ import { Router } from '@angular/router';
 import { Observable, tap } from 'rxjs';
 import { AuthResponse, UserRole } from '../models/user.model';
 import { TelegramService } from './telegram.service';
+import { ConfigService } from './config.service';
 
 @Injectable({
   providedIn: 'root'
 })
 export class AuthService
 {
-  private apiUrl = 'http://localhost:5000/api/auth';
+  private get apiUrl(): string {
+    return `${this.config.apiUrl}/auth`;
+  }
 
   public currentRole = signal<string | null>(null);
   public isAuthenticated = signal<boolean>(false);
@@ -18,7 +21,8 @@ export class AuthService
   constructor(
     private http: HttpClient,
     private router: Router,
-    private telegramService: TelegramService
+    private telegramService: TelegramService,
+    private config: ConfigService
   )
   {
     this.checkInitialAuth();

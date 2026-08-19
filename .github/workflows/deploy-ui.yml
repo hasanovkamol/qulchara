@@ -35,7 +35,7 @@ jobs:
 
       - name: Build Angular Project
         # The base-href must match the repository name for GitHub Pages: /qulchara/
-        run: npm run build -- --base-href /qulchara/
+        run: npm run build -- --base-href /qulchara/ --configuration production
 
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v4
