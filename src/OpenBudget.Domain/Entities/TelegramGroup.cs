@@ -11,4 +11,5 @@ public class TelegramGroup
     public bool IsActive { get; set; } = true;
     public DateTime JoinedAt { get; set; } = DateTime.UtcNow;
     public DateTime? LastActiveAt { get; set; }
+    public string? InitiativeCode { get; set; }
 }

@@ -26,6 +26,7 @@ public class UpdateHandler
     private readonly IConfiguration _configuration;
     private readonly IDocumentationService _docService;
     private readonly IBotSettingService _botSettingService;
+    private readonly ITelegramGroupService _telegramGroupService;
 
     public UpdateHandler(
         IUserService userService,
@@ -37,7 +38,8 @@ public class UpdateHandler
         INotificationService notificationService,
         IConfiguration configuration,
         IDocumentationService docService,
-        IBotSettingService botSettingService)
+        IBotSettingService botSettingService,
+        ITelegramGroupService telegramGroupService)
     {
         _userService = userService;
         _groupMemberHandler = groupMemberHandler;
@@ -49,6 +51,7 @@ public class UpdateHandler
         _configuration = configuration;
         _docService = docService;
         _botSettingService = botSettingService;
+        _telegramGroupService = telegramGroupService;
     }
 
     public async Task HandleUpdateAsync(ITelegramBotClient botClient, Update update, CancellationToken cancellationToken)
@@ -127,8 +130,15 @@ public class UpdateHandler
             return;
         }
 
-        if (message.Text == "/start")
+        if (message.Text == "/start" || message.Text == "/start broker")
         {
+            if (message.Text == "/start broker" && dbUser.Role == UserRole.Guest)
+            {
+                await _userService.UpdateRoleAsync(dbUser.Id, UserRole.Broker, cancellationToken);
+                dbUser.Role = UserRole.Broker;
+                await botClient.SendMessage(message.Chat.Id, "🎉 <b>Tabriklaymiz!</b> Siz tizimda <b>Broker</b> sifatida ro'yxatdan o'tdingiz.", parseMode: ParseMode.Html, cancellationToken: cancellationToken);
+            }
+            
             await EnsureUserCommandsAsync(botClient, message.Chat.Id, dbUser.Role, cancellationToken);
         }
 
@@ -190,6 +200,46 @@ public class UpdateHandler
                       $"👥 Guruh: <b>{message.Chat.Title}</b>\n" +
                       $"🔄 Yangi ro'yxatdan o'tganlar: <b>{syncedCount}</b> ta\n\n" +
                       $"ℹ️ Guruh a'zolari guruhda xabar yozganlarida avtomatik ravishda broker sifatida bazaga kiritiladi.",
+                parseMode: ParseMode.Html,
+                replyParameters: new ReplyParameters { MessageId = message.MessageId },
+                cancellationToken: cancellationToken);
+        }
+        else if (text.StartsWith("/setcode", StringComparison.OrdinalIgnoreCase))
+        {
+            var dbUser = await _userService.GetByTelegramIdAsync(message.From.Id, cancellationToken);
+            var superAdminIds = _configuration.GetSection("TelegramBot:SuperAdminIds").Get<long[]>() ?? Array.Empty<long>();
+            bool isAdmin = dbUser != null && (dbUser.Role == UserRole.SuperAdmin || dbUser.Role == UserRole.Admin) || superAdminIds.Contains(message.From.Id);
+
+            if (!isAdmin)
+            {
+                await botClient.SendMessage(
+                    chatId: message.Chat.Id,
+                    text: "❌ <b>/setcode buyrug'i faqat Admin yoki SuperAdmin uchun ruxsat etilgan.</b>",
+                    parseMode: ParseMode.Html,
+                    replyParameters: new ReplyParameters { MessageId = message.MessageId },
+                    cancellationToken: cancellationToken);
+                return;
+            }
+
+            var parts = text.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length < 2)
+            {
+                await botClient.SendMessage(
+                    chatId: message.Chat.Id,
+                    text: "❌ <b>Tashabbus kodi kiritilmadi.</b>\nFormat: <code>/setcode [kod_yoki_uuid]</code>",
+                    parseMode: ParseMode.Html,
+                    replyParameters: new ReplyParameters { MessageId = message.MessageId },
+                    cancellationToken: cancellationToken);
+                return;
+            }
+
+            var code = parts[1];
+            var result = await _telegramGroupService.SetInitiativeCodeAsync(message.Chat.Id, code, cancellationToken);
+            var emoji = result.Success ? "✅" : "❌";
+            
+            await botClient.SendMessage(
+                chatId: message.Chat.Id,
+                text: $"{emoji} <b>{result.Message}</b>",
                 parseMode: ParseMode.Html,
                 replyParameters: new ReplyParameters { MessageId = message.MessageId },
                 cancellationToken: cancellationToken);

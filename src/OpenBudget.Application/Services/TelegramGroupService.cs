@@ -54,8 +54,28 @@ public class TelegramGroupService : ITelegramGroupService
         }
     }
 
-    public Task<List<TelegramGroup>> GetActiveGroupsAsync(CancellationToken cancellationToken = default)
+    public async Task<List<TelegramGroup>> GetActiveGroupsAsync(CancellationToken cancellationToken = default)
     {
-        return _groupRepository.GetAllActiveAsync(cancellationToken);
+        return await _groupRepository.GetAllActiveAsync(cancellationToken);
+    }
+
+    public async Task<(bool Success, string Message)> SetInitiativeCodeAsync(long chatId, string initiativeCode, CancellationToken cancellationToken = default)
+    {
+        var group = await _groupRepository.GetByChatIdAsync(chatId, cancellationToken);
+        if (group == null)
+        {
+            return (false, "Guruh topilmadi.");
+        }
+        
+        group.InitiativeCode = initiativeCode.Trim();
+        await _groupRepository.UpdateAsync(group, cancellationToken);
+        
+        return (true, "Tashabbus kodi muvaffaqiyatli saqlandi.");
+    }
+
+    public async Task<List<TelegramGroup>> GetActiveGroupsWithCodeAsync(CancellationToken cancellationToken = default)
+    {
+        var allActive = await _groupRepository.GetAllActiveAsync(cancellationToken);
+        return allActive.Where(g => !string.IsNullOrEmpty(g.InitiativeCode)).ToList();
     }
 }
