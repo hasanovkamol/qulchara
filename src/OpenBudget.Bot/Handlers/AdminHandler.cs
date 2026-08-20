@@ -204,7 +204,7 @@ public class AdminHandler
                 return;
             }
 
-            var localTimeNow = DateTime.UtcNow.AddHours(5);
+            var localTimeNow = OpenBudget.Application.Helpers.DateTimeHelper.UzbekistanNow;
             var targetLocalTime = localTimeNow.Date + time;
             
             if (targetLocalTime > localTimeNow.AddHours(1)) 
@@ -212,10 +212,9 @@ public class AdminHandler
                 targetLocalTime = targetLocalTime.AddDays(-1);
             }
 
-            var targetUtcTime = targetLocalTime.AddHours(-5);
             var windowHours = int.Parse(_configuration["VoteSettings:ConfirmTimeWindowHours"] ?? "1");
 
-            var result = await _voteService.ConfirmVoteAsync(dbUser.Id, last3, targetUtcTime, TimeSpan.FromHours(windowHours), cancellationToken);
+            var result = await _voteService.ConfirmVoteAsync(dbUser.Id, last3, targetLocalTime, TimeSpan.FromHours(windowHours), cancellationToken);
 
             var reply = result.Success ? $"✅ {result.Message}" : $"❌ {result.Message}";
             await _userService.UpdateStateAsync(dbUser.Id, BotState.Default, cancellationToken);

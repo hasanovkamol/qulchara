@@ -241,7 +241,7 @@ public class SuperAdminHandler
                 return;
             }
 
-            var localTimeNow = DateTime.UtcNow.AddHours(5);
+            var localTimeNow = OpenBudget.Application.Helpers.DateTimeHelper.UzbekistanNow;
             var targetLocalTime = localTimeNow.Date + time;
             
             if (targetLocalTime > localTimeNow.AddHours(1)) 
@@ -249,10 +249,9 @@ public class SuperAdminHandler
                 targetLocalTime = targetLocalTime.AddDays(-1);
             }
 
-            var targetUtcTime = targetLocalTime.AddHours(-5);
             var windowHours = int.Parse(_configuration["VoteSettings:ConfirmTimeWindowHours"] ?? "1");
 
-            var result = await _voteService.ConfirmVoteAsync(dbUser.Id, last3, targetUtcTime, TimeSpan.FromHours(windowHours), cancellationToken);
+            var result = await _voteService.ConfirmVoteAsync(dbUser.Id, last3, targetLocalTime, TimeSpan.FromHours(windowHours), cancellationToken);
 
             var reply = result.Success ? $"✅ {result.Message}" : $"❌ {result.Message}";
             await _userService.UpdateStateAsync(dbUser.Id, BotState.Default, cancellationToken);
@@ -327,7 +326,7 @@ public class SuperAdminHandler
             var usernameText = string.IsNullOrEmpty(g.Username) ? "" : $" (@{g.Username})";
             text += $"{i + 1}. <b>{g.Title}</b>{usernameText}\n" +
                     $"   🆔 Chat ID: <code>{g.ChatId}</code>\n" +
-                    $"   📅 Qo'shilgan: {g.JoinedAt.ToLocalTime():dd.MM.yyyy HH:mm}\n\n";
+                    $"   📅 Qo'shilgan: {g.JoinedAt:dd.MM.yyyy HH:mm}\n\n";
 
             buttons.Add(new[]
             {

@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using OpenBudget.Application.DTOs;
+using OpenBudget.Application.Helpers;
 using OpenBudget.Domain.Entities;
 using OpenBudget.Domain.Enums;
 using OpenBudget.Domain.Interfaces;
@@ -42,7 +43,8 @@ public class UserService : IUserService
             TelegramId = telegramId,
             Username = username,
             FullName = fullName,
-            Role = role
+            Role = role,
+            CreatedAt = DateTimeHelper.UzbekistanNow
         };
 
         await _userRepository.AddAsync(newUser, cancellationToken);
@@ -84,6 +86,7 @@ public class UserService : IUserService
         }
 
         targetUser.Role = newRole;
+        targetUser.UpdatedAt = DateTimeHelper.UzbekistanNow;
         await _userRepository.UpdateAsync(targetUser, cancellationToken);
 
         return (true, "Rol muvaffaqiyatli o'zgartirildi.");
@@ -105,6 +108,7 @@ public class UserService : IUserService
         if (targetUser != null)
         {
             targetUser.Role = newRole;
+            targetUser.UpdatedAt = DateTimeHelper.UzbekistanNow;
             await _userRepository.UpdateAsync(targetUser, cancellationToken);
         }
     }
@@ -128,7 +132,7 @@ public class UserService : IUserService
         }
 
         targetUser.IsActive = !targetUser.IsActive;
-        targetUser.UpdatedAt = System.DateTime.UtcNow;
+        targetUser.UpdatedAt = DateTimeHelper.UzbekistanNow;
 
         await _userRepository.UpdateAsync(targetUser, cancellationToken);
 

@@ -3,6 +3,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using OpenBudget.Application.DTOs;
+using OpenBudget.Application.Helpers;
 using OpenBudget.Application.Validators;
 using OpenBudget.Domain.Entities;
 using OpenBudget.Domain.Enums;
@@ -45,7 +46,8 @@ public class VoteService : IVoteService
             BrokerId = brokerId,
             PhoneNumber = validation.FormattedNumber,
             Status = VoteStatus.Pending,
-            VotedAt = DateTime.UtcNow
+            VotedAt = DateTimeHelper.UzbekistanNow,
+            CreatedAt = DateTimeHelper.UzbekistanNow
         };
 
         await _voteRepository.AddAsync(vote, cancellationToken);
@@ -62,7 +64,7 @@ public class VoteService : IVoteService
         }
 
         vote.Status = VoteStatus.Confirmed;
-        vote.ConfirmedAt = DateTime.UtcNow;
+        vote.ConfirmedAt = DateTimeHelper.UzbekistanNow;
         vote.ConfirmedByAdminId = adminId;
 
         await _voteRepository.UpdateAsync(vote, cancellationToken);

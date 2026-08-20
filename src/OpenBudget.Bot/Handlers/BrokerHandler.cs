@@ -183,7 +183,7 @@ public class BrokerHandler
         var text = $"📋 <b>Mening ovozlarim</b> ({page}/{Math.Max(1, (int)Math.Ceiling((double)pagedResult.TotalCount / pageSize))})\n" +
                    $"━━━━━━━━━━━━━━━━\n" +
                    $"📱 Raqam: <code>{vote.PhoneNumber}</code>\n" +
-                   $"🕐 Vaqt: {vote.VotedAt.ToLocalTime():HH:mm (dd.MM.yyyy)}\n" +
+                   $"🕐 Vaqt: {vote.VotedAt:HH:mm (dd.MM.yyyy)}\n" +
                    $"Holat: <b>{statusEmoji}</b>\n" +
                    $"━━━━━━━━━━━━━━━━";
 

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
+using OpenBudget.Application.Helpers;
 using OpenBudget.Domain.Entities;
 using OpenBudget.Domain.Interfaces;
 
@@ -27,8 +28,8 @@ public class TelegramGroupService : ITelegramGroupService
                 Title = string.IsNullOrWhiteSpace(title) ? "Guruh" : title,
                 Username = username,
                 IsActive = true,
-                JoinedAt = DateTime.UtcNow,
-                LastActiveAt = DateTime.UtcNow
+                JoinedAt = DateTimeHelper.UzbekistanNow,
+                LastActiveAt = DateTimeHelper.UzbekistanNow
             };
             await _groupRepository.AddAsync(newGroup, cancellationToken);
             return newGroup;
@@ -37,7 +38,7 @@ public class TelegramGroupService : ITelegramGroupService
         existing.Title = string.IsNullOrWhiteSpace(title) ? existing.Title : title;
         existing.Username = username ?? existing.Username;
         existing.IsActive = true;
-        existing.LastActiveAt = DateTime.UtcNow;
+        existing.LastActiveAt = DateTimeHelper.UzbekistanNow;
 
         await _groupRepository.UpdateAsync(existing, cancellationToken);
         return existing;

@@ -3,6 +3,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
+using OpenBudget.Application.Helpers;
 using OpenBudget.Application.Services;
 using Telegram.Bot;
 
@@ -53,7 +54,7 @@ public class ErrorNotificationService : INotificationService
 
         try
         {
-            var text = $"🚨 ERROR | {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss} UTC\n" +
+            var text = $"🚨 ERROR | {DateTimeHelper.UzbekistanNow:yyyy-MM-dd HH:mm:ss}\n" +
                        $"━━━━━━━━━━━━━━━━━━━━━━━━━━━\n" +
                        $"Type: {ex.GetType().Name}\n" +
                        $"Message: {ex.Message}\n" +
@@ -74,7 +75,7 @@ public class ErrorNotificationService : INotificationService
 
         try
         {
-            var text = $"ℹ️ INFO | {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss} UTC\n" +
+            var text = $"ℹ️ INFO | {DateTimeHelper.UzbekistanNow:yyyy-MM-dd HH:mm:ss}\n" +
                        $"━━━━━━━━━━━━━━━━━━━━━━━━━━━\n" +
                        $"{message}\n" +
                        $"━━━━━━━━━━━━━━━━━━━━━━━━━━━";
