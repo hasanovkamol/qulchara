@@ -109,6 +109,33 @@ public class UserService : IUserService
         }
     }
 
+    public async Task<(bool Success, string Message, bool NewStatus)> ToggleUserBlockAsync(int targetUserId, UserRole actorRole, CancellationToken cancellationToken = default)
+    {
+        var targetUser = await _userRepository.GetByIdAsync(targetUserId, cancellationToken);
+        if (targetUser == null)
+        {
+            return (false, "Foydalanuvchi topilmadi.", false);
+        }
+
+        if (targetUser.Role == UserRole.SuperAdmin)
+        {
+            return (false, "SuperAdmin foydalanuvchisini bloklab bo'lmaydi.", targetUser.IsActive);
+        }
+
+        if (actorRole == UserRole.Admin && targetUser.Role == UserRole.Admin)
+        {
+            return (false, "Admin boshqa Adminni bloklay olmaydi.", targetUser.IsActive);
+        }
+
+        targetUser.IsActive = !targetUser.IsActive;
+        targetUser.UpdatedAt = System.DateTime.UtcNow;
+
+        await _userRepository.UpdateAsync(targetUser, cancellationToken);
+
+        var statusText = targetUser.IsActive ? "blokdan chiqarildi" : "bloklandi";
+        return (true, $"Foydalanuvchi {targetUser.FullName ?? targetUser.Username ?? targetUser.TelegramId.ToString()} {statusText}.", targetUser.IsActive);
+    }
+
     public Task<List<User>> GetAllUsersAsync(CancellationToken cancellationToken = default)
     {
         return _userRepository.GetAllAsync(cancellationToken);

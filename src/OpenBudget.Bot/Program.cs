@@ -26,10 +26,12 @@ builder.Services.AddDbContext<AppDbContext>(options =>
 // Repositories
 builder.Services.AddScoped<IUserRepository, UserRepository>();
 builder.Services.AddScoped<IVoteRepository, VoteRepository>();
+builder.Services.AddScoped<ITelegramGroupRepository, TelegramGroupRepository>();
 
 // Services
 builder.Services.AddScoped<IVoteService, VoteService>();
 builder.Services.AddScoped<IUserService, UserService>();
+builder.Services.AddScoped<ITelegramGroupService, TelegramGroupService>();
 builder.Services.AddSingleton<ITokenService, TokenService>();
 builder.Services.AddSingleton<INotificationService, ErrorNotificationService>(); // Includes both Error and Main Bot notifications logic
 
@@ -91,7 +93,32 @@ app.MapControllers();
 using (var scope = app.Services.CreateScope())
 {
     var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-    dbContext.Database.EnsureCreated();
+    try
+    {
+        dbContext.Database.ExecuteSqlRaw(@"
+            IF EXISTS (SELECT * FROM sys.tables WHERE name = 'Users')
+            BEGIN
+                IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = '__EFMigrationsHistory')
+                BEGIN
+                    CREATE TABLE [__EFMigrationsHistory] (
+                        [MigrationId] nvarchar(150) NOT NULL,
+                        [ProductVersion] nvarchar(32) NOT NULL,
+                        CONSTRAINT [PK___EFMigrationsHistory] PRIMARY KEY ([MigrationId])
+                    );
+                END;
+
+                IF NOT EXISTS (SELECT * FROM [__EFMigrationsHistory] WHERE [MigrationId] = N'20260820034820_InitialCreate')
+                BEGIN
+                    INSERT INTO [__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+                    VALUES (N'20260820034820_InitialCreate', N'10.0.11');
+                END;
+            END;");
+    }
+    catch
+    {
+    }
+
+    dbContext.Database.Migrate();
 }
 
 app.Run();

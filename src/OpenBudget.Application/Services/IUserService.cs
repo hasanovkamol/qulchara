@@ -15,6 +15,7 @@ public interface IUserService
     Task UpdateStateAsync(int userId, BotState state, CancellationToken cancellationToken = default);
     Task<(bool Success, string Message)> AssignRoleAsync(int targetUserId, UserRole newRole, UserRole assignerRole, CancellationToken cancellationToken = default);
     Task UpdateRoleAsync(int userId, UserRole newRole, CancellationToken cancellationToken = default);
+    Task<(bool Success, string Message, bool NewStatus)> ToggleUserBlockAsync(int targetUserId, UserRole actorRole, CancellationToken cancellationToken = default);
     Task<List<User>> GetAllUsersAsync(CancellationToken cancellationToken = default);
     Task<GlobalStatsDto> GetGlobalStatsAsync(CancellationToken cancellationToken = default);
 }

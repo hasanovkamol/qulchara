@@ -1,11 +1,14 @@
 using System;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Configuration;
 using OpenBudget.Application.Services;
 using OpenBudget.Domain.Enums;
 using Telegram.Bot;
 using Telegram.Bot.Types;
 using Telegram.Bot.Types.Enums;
+using Telegram.Bot.Types.ReplyMarkups;
 
 namespace OpenBudget.Bot.Handlers;
 
@@ -17,7 +20,7 @@ public class UpdateHandler
     private readonly AdminHandler _adminHandler;
     private readonly SuperAdminHandler _superAdminHandler;
     private readonly INotificationService _notificationService;
-    private readonly Microsoft.Extensions.Configuration.IConfiguration _configuration;
+    private readonly IConfiguration _configuration;
 
     public UpdateHandler(
         IUserService userService,
@@ -26,7 +29,7 @@ public class UpdateHandler
         AdminHandler adminHandler,
         SuperAdminHandler superAdminHandler,
         INotificationService notificationService,
-        Microsoft.Extensions.Configuration.IConfiguration configuration)
+        IConfiguration configuration)
     {
         _userService = userService;
         _groupMemberHandler = groupMemberHandler;
@@ -48,9 +51,9 @@ public class UpdateHandler
                     {
                         await HandlePrivateMessageAsync(botClient, update.Message, cancellationToken);
                     }
-                    else if (update.Message?.NewChatMembers != null)
+                    else if (update.Message?.Chat.Type is ChatType.Group or ChatType.Supergroup)
                     {
-                        await _groupMemberHandler.HandleNewChatMembersAsync(botClient, update.Message, cancellationToken);
+                        await HandleGroupMessageAsync(botClient, update.Message, cancellationToken);
                     }
                     break;
                 case UpdateType.CallbackQuery:
@@ -92,11 +95,24 @@ public class UpdateHandler
 
         if (dbUser == null)
         {
-            // Optional: Avto register qilishni xohlasak, shuni ishlatamiz. 
-            // Lekin biz faqat guruh orqali ro'yxatdan o'tganlarni qabul qilamiz deganmiz.
-            // Shuning uchun:
-            await botClient.SendMessage(message.Chat.Id, "Siz hali ro'yxatdan o'tmagansiz. Guruhga qo'shiling.", cancellationToken: cancellationToken);
+            await botClient.SendMessage(message.Chat.Id, "Siz hali ro'yxatdan o'tmagansiz. Iltimos, biriktirilgan guruhga qo'shiling.", cancellationToken: cancellationToken);
             return;
+        }
+
+        if (!dbUser.IsActive)
+        {
+            await botClient.SendMessage(
+                chatId: message.Chat.Id,
+                text: "❌ <b>Sizning hisobingiz bloklangan.</b>\nIltimos, administratorga murojaat qiling.",
+                parseMode: ParseMode.Html,
+                replyMarkup: new ReplyKeyboardRemove(),
+                cancellationToken: cancellationToken);
+            return;
+        }
+
+        if (message.Text == "/start")
+        {
+            await EnsureUserCommandsAsync(botClient, message.Chat.Id, dbUser.Role, cancellationToken);
         }
 
         switch (dbUser.Role)
@@ -113,23 +129,177 @@ public class UpdateHandler
         }
     }
 
+    private async Task HandleGroupMessageAsync(ITelegramBotClient botClient, Message message, CancellationToken cancellationToken)
+    {
+        if (message.NewChatMembers != null)
+        {
+            await _groupMemberHandler.HandleNewChatMembersAsync(botClient, message, cancellationToken);
+            return;
+        }
+
+        if (message.From == null || message.From.IsBot) return;
+
+        // Guruhda yozgan har qanday faol foydalanuvchini agar ro'yxatda bo'lmasa broker sifatida kiritish
+        await _groupMemberHandler.RegisterMemberAsync(message.From, message.Chat.Title ?? "Guruh", cancellationToken);
+
+        var text = message.Text?.Trim();
+        if (string.IsNullOrEmpty(text)) return;
+
+        // /sync buyrug'ini tekshirish (Faqat SuperAdmin uchun)
+        if (text.StartsWith("/sync", StringComparison.OrdinalIgnoreCase))
+        {
+            var dbUser = await _userService.GetByTelegramIdAsync(message.From.Id, cancellationToken);
+            var superAdminIds = _configuration.GetSection("TelegramBot:SuperAdminIds").Get<long[]>() ?? Array.Empty<long>();
+            bool isSuperAdmin = (dbUser != null && dbUser.Role == UserRole.SuperAdmin) || superAdminIds.Contains(message.From.Id);
+
+            if (!isSuperAdmin)
+            {
+                await botClient.SendMessage(
+                    chatId: message.Chat.Id,
+                    text: "❌ <b>/sync buyrug'i faqat SuperAdmin uchun ruxsat etilgan.</b>",
+                    parseMode: ParseMode.Html,
+                    replyParameters: new ReplyParameters { MessageId = message.MessageId },
+                    cancellationToken: cancellationToken);
+                return;
+            }
+
+            var syncedCount = await _groupMemberHandler.SyncGroupMembersAsync(botClient, message.Chat.Id, message.Chat.Title ?? "Guruh", cancellationToken);
+            await botClient.SendMessage(
+                chatId: message.Chat.Id,
+                text: $"✅ <b>Guruh muvaffaqiyatli sinxronlandi!</b>\n" +
+                      $"👥 Guruh: <b>{message.Chat.Title}</b>\n" +
+                      $"🔄 Yangi ro'yxatdan o'tganlar: <b>{syncedCount}</b> ta\n\n" +
+                      $"ℹ️ Guruh a'zolari guruhda xabar yozganlarida avtomatik ravishda broker sifatida bazaga kiritiladi.",
+                parseMode: ParseMode.Html,
+                replyParameters: new ReplyParameters { MessageId = message.MessageId },
+                cancellationToken: cancellationToken);
+        }
+    }
+
     private async Task HandleCallbackQueryAsync(ITelegramBotClient botClient, CallbackQuery callbackQuery, CancellationToken cancellationToken)
     {
         if (callbackQuery.From == null) return;
 
         var dbUser = await _userService.GetByTelegramIdAsync(callbackQuery.From.Id, cancellationToken);
+        var superAdminIds = _configuration.GetSection("TelegramBot:SuperAdminIds").Get<long[]>() ?? Array.Empty<long>();
+
+        if (superAdminIds.Contains(callbackQuery.From.Id))
+        {
+            if (dbUser == null)
+            {
+                dbUser = await _userService.RegisterUserAsync(callbackQuery.From.Id, callbackQuery.From.Username, $"{callbackQuery.From.FirstName} {callbackQuery.From.LastName}".Trim(), UserRole.SuperAdmin, cancellationToken);
+            }
+            else if (dbUser.Role != UserRole.SuperAdmin)
+            {
+                await _userService.UpdateRoleAsync(dbUser.Id, UserRole.SuperAdmin, cancellationToken);
+                dbUser.Role = UserRole.SuperAdmin;
+            }
+        }
+
+        if (callbackQuery.Data != null && callbackQuery.Data.StartsWith("sync_group_"))
+        {
+            bool isSuperAdmin = (dbUser != null && dbUser.Role == UserRole.SuperAdmin) || superAdminIds.Contains(callbackQuery.From.Id);
+            if (!isSuperAdmin)
+            {
+                await botClient.AnswerCallbackQuery(
+                    callbackQuery.Id,
+                    "❌ Faqat SuperAdmin guruhni sinxronlay oladi!",
+                    showAlert: true,
+                    cancellationToken: cancellationToken);
+                return;
+            }
+
+            var chatIdStr = callbackQuery.Data.Replace("sync_group_", "");
+            if (long.TryParse(chatIdStr, out long targetChatId))
+            {
+                var chatTitle = callbackQuery.Message?.Chat.Title ?? "Guruh";
+                var synced = await _groupMemberHandler.SyncGroupMembersAsync(botClient, targetChatId, chatTitle, cancellationToken);
+                await botClient.AnswerCallbackQuery(callbackQuery.Id, $"✅ Sinxronlandi! {synced} ta yangi a'zo qo'shildi.", showAlert: true, cancellationToken: cancellationToken);
+
+                await botClient.SendMessage(
+                    chatId: targetChatId,
+                    text: $"✅ <b>Guruh sinxronizatsiyasi yakunlandi!</b>\n🔄 Yangi qo'shilgan a'zolar: <b>{synced}</b> ta.",
+                    parseMode: ParseMode.Html,
+                    cancellationToken: cancellationToken);
+            }
+            return;
+        }
+
         if (dbUser == null) return;
 
         if (dbUser.Role == UserRole.Broker)
         {
             await _brokerHandler.HandleCallbackQueryAsync(botClient, callbackQuery, dbUser, cancellationToken);
         }
+        else if (dbUser.Role == UserRole.Admin)
+        {
+            await _adminHandler.HandleCallbackQueryAsync(botClient, callbackQuery, dbUser, cancellationToken);
+        }
         else if (dbUser.Role == UserRole.SuperAdmin)
         {
             await _superAdminHandler.HandleCallbackQueryAsync(botClient, callbackQuery, dbUser, cancellationToken);
         }
 
-        // Answer callback to remove loading state
-        await botClient.AnswerCallbackQuery(callbackQuery.Id, cancellationToken: cancellationToken);
+        try
+        {
+            await botClient.AnswerCallbackQuery(callbackQuery.Id, cancellationToken: cancellationToken);
+        }
+        catch
+        {
+            // Ignore if already answered
+        }
+    }
+
+    private async Task EnsureUserCommandsAsync(ITelegramBotClient botClient, long chatId, UserRole role, CancellationToken cancellationToken)
+    {
+        try
+        {
+            BotCommand[] commands = role switch
+            {
+                UserRole.SuperAdmin => new[]
+                {
+                    new BotCommand { Command = "start", Description = "Asosiy menyu" },
+                    new BotCommand { Command = "globalstats", Description = "Global statistika" },
+                    new BotCommand { Command = "groups", Description = "Ulangan guruhlar" },
+                    new BotCommand { Command = "sync", Description = "Guruh a'zolarini sinxronlash" },
+                    new BotCommand { Command = "assignadmin", Description = "Admin tayinlash" },
+                    new BotCommand { Command = "brokers", Description = "Brokerlar ro'yxati" },
+                    new BotCommand { Command = "confirm", Description = "Ovoz tasdiqlash" },
+                    new BotCommand { Command = "vote", Description = "Ovoz qo'shish" },
+                    new BotCommand { Command = "myvotes", Description = "Mening ovozlarim" },
+                    new BotCommand { Command = "mystats", Description = "Mening statistikam" },
+                    new BotCommand { Command = "info", Description = "Loyiha ma'lumotlari" }
+                },
+                UserRole.Admin => new[]
+                {
+                    new BotCommand { Command = "start", Description = "Asosiy menyu" },
+                    new BotCommand { Command = "brokers", Description = "Brokerlar ro'yxati va boshqarish" },
+                    new BotCommand { Command = "confirm", Description = "Ovoz tasdiqlash" },
+                    new BotCommand { Command = "adminstats", Description = "Brokerlar statistikasi" },
+                    new BotCommand { Command = "vote", Description = "Ovoz qo'shish" },
+                    new BotCommand { Command = "myvotes", Description = "Mening ovozlarim" },
+                    new BotCommand { Command = "mystats", Description = "Mening statistikam" },
+                    new BotCommand { Command = "info", Description = "Loyiha ma'lumotlari" }
+                },
+                _ => new[]
+                {
+                    new BotCommand { Command = "start", Description = "Asosiy menyu" },
+                    new BotCommand { Command = "vote", Description = "Ovoz qo'shish" },
+                    new BotCommand { Command = "myvotes", Description = "Mening ovozlarim" },
+                    new BotCommand { Command = "mystats", Description = "Mening statistikam" },
+                    new BotCommand { Command = "info", Description = "Loyiha ma'lumotlari" }
+                }
+            };
+
+            await botClient.SetMyCommands(
+                commands: commands,
+                scope: new BotCommandScopeChat { ChatId = chatId },
+                cancellationToken: cancellationToken);
+        }
+        catch
+        {
+            // Fallback gracefully if scope setting fails
+        }
     }
 }
+
