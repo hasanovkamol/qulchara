@@ -87,7 +87,7 @@ public class VoteService : IVoteService
             Id = x.Id,
             PhoneNumber = x.PhoneNumber,
             Status = x.Status,
-            VotedAt = x.VotedAt
+            VotedAt = x.CreatedAt
         }).ToList();
 
         return new PaginatedResult<VoteDto>
@@ -109,7 +109,7 @@ public class VoteService : IVoteService
             BrokerName = v.Broker?.FullName ?? "Noma'lum",
             PhoneNumber = MaskPhoneNumber(v.PhoneNumber),
             Status = v.Status,
-            VotedAt = v.VotedAt,
+            VotedAt = v.CreatedAt,
             ConfirmedAt = v.ConfirmedAt,
             RejectReason = v.RejectReason
         }).ToList();

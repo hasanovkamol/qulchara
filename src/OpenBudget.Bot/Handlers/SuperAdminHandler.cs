@@ -445,6 +445,19 @@ public class SuperAdminHandler
             }
             return;
         }
+        else if (dbUser.BotState == BotState.WaitingForVote)
+        {
+            var result = await _voteService.AddVoteAsync(dbUser.Id, text, cancellationToken);
+            var replyText = result.Success ? $"✅ {result.Message}" : $"❌ {result.Message}";
+            
+            await _userService.UpdateStateAsync(dbUser.Id, BotState.Default, cancellationToken);
+            await botClient.SendMessage(
+                chatId: message.Chat.Id,
+                text: replyText,
+                replyMarkup: replyMarkup,
+                cancellationToken: cancellationToken);
+            return;
+        }
         else
         {
             await botClient.SendMessage(message.Chat.Id, "Iltimos, quyidagi menyu tugmalaridan foydalaning.", replyMarkup: replyMarkup, cancellationToken: cancellationToken);
