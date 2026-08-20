@@ -10,6 +10,8 @@ using Telegram.Bot.Types;
 using Telegram.Bot.Types.Enums;
 using Telegram.Bot.Types.ReplyMarkups;
 
+using OpenBudget.Bot.Services;
+
 namespace OpenBudget.Bot.Handlers;
 
 public class UpdateHandler
@@ -19,8 +21,10 @@ public class UpdateHandler
     private readonly BrokerHandler _brokerHandler;
     private readonly AdminHandler _adminHandler;
     private readonly SuperAdminHandler _superAdminHandler;
+    private readonly GuestHandler _guestHandler;
     private readonly INotificationService _notificationService;
     private readonly IConfiguration _configuration;
+    private readonly IDocumentationService _docService;
 
     public UpdateHandler(
         IUserService userService,
@@ -28,16 +32,20 @@ public class UpdateHandler
         BrokerHandler brokerHandler,
         AdminHandler adminHandler,
         SuperAdminHandler superAdminHandler,
+        GuestHandler guestHandler,
         INotificationService notificationService,
-        IConfiguration configuration)
+        IConfiguration configuration,
+        IDocumentationService docService)
     {
         _userService = userService;
         _groupMemberHandler = groupMemberHandler;
         _brokerHandler = brokerHandler;
         _adminHandler = adminHandler;
         _superAdminHandler = superAdminHandler;
+        _guestHandler = guestHandler;
         _notificationService = notificationService;
         _configuration = configuration;
+        _docService = docService;
     }
 
     public async Task HandleUpdateAsync(ITelegramBotClient botClient, Update update, CancellationToken cancellationToken)
@@ -117,6 +125,9 @@ public class UpdateHandler
 
         switch (dbUser.Role)
         {
+            case UserRole.Guest:
+                await _guestHandler.HandleMessageAsync(botClient, message, dbUser, cancellationToken);
+                break;
             case UserRole.Broker:
                 await _brokerHandler.HandleMessageAsync(botClient, message, dbUser, cancellationToken);
                 break;
@@ -227,6 +238,41 @@ public class UpdateHandler
 
         if (dbUser == null) return;
 
+        if (callbackQuery.Data != null && callbackQuery.Data.StartsWith("doc_"))
+        {
+            try
+            {
+                if (callbackQuery.Data == "doc_main")
+                {
+                    var (mainText, mainKeyboard) = _docService.GetMainMenu(dbUser.Role);
+                    await botClient.EditMessageText(
+                        chatId: callbackQuery.Message!.Chat.Id,
+                        messageId: callbackQuery.Message.MessageId,
+                        text: mainText,
+                        parseMode: ParseMode.Html,
+                        replyMarkup: mainKeyboard,
+                        cancellationToken: cancellationToken);
+                }
+                else
+                {
+                    var (secText, secKeyboard) = _docService.GetSectionContent(callbackQuery.Data, dbUser.Role);
+                    await botClient.EditMessageText(
+                        chatId: callbackQuery.Message!.Chat.Id,
+                        messageId: callbackQuery.Message.MessageId,
+                        text: secText,
+                        parseMode: ParseMode.Html,
+                        replyMarkup: secKeyboard,
+                        cancellationToken: cancellationToken);
+                }
+                await botClient.AnswerCallbackQuery(callbackQuery.Id, cancellationToken: cancellationToken);
+            }
+            catch
+            {
+                await botClient.AnswerCallbackQuery(callbackQuery.Id, cancellationToken: cancellationToken);
+            }
+            return;
+        }
+
         if (dbUser.Role == UserRole.Broker)
         {
             await _brokerHandler.HandleCallbackQueryAsync(botClient, callbackQuery, dbUser, cancellationToken);
@@ -281,12 +327,18 @@ public class UpdateHandler
                     new BotCommand { Command = "mystats", Description = "Mening statistikam" },
                     new BotCommand { Command = "info", Description = "Loyiha ma'lumotlari" }
                 },
-                _ => new[]
+                UserRole.Broker => new[]
                 {
                     new BotCommand { Command = "start", Description = "Asosiy menyu" },
                     new BotCommand { Command = "vote", Description = "Ovoz qo'shish" },
                     new BotCommand { Command = "myvotes", Description = "Mening ovozlarim" },
                     new BotCommand { Command = "mystats", Description = "Mening statistikam" },
+                    new BotCommand { Command = "info", Description = "Loyiha ma'lumotlari" }
+                },
+                _ => new[] // Guest
+                {
+                    new BotCommand { Command = "start", Description = "Asosiy menyu" },
+                    new BotCommand { Command = "request", Description = "Brokerlik so'rovi yuborish" },
                     new BotCommand { Command = "info", Description = "Loyiha ma'lumotlari" }
                 }
             };

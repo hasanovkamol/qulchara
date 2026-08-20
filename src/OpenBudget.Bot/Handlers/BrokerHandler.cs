@@ -13,6 +13,8 @@ using Telegram.Bot.Types.Enums;
 using Telegram.Bot.Types.ReplyMarkups;
 using User = OpenBudget.Domain.Entities.User; // Alias to avoid collision
 
+using OpenBudget.Bot.Services;
+
 namespace OpenBudget.Bot.Handlers;
 
 public class BrokerHandler
@@ -20,12 +22,14 @@ public class BrokerHandler
     private readonly IVoteService _voteService;
     private readonly IConfiguration _configuration;
     private readonly IUserService _userService;
+    private readonly IDocumentationService _docService;
 
-    public BrokerHandler(IVoteService voteService, IConfiguration configuration, IUserService userService)
+    public BrokerHandler(IVoteService voteService, IConfiguration configuration, IUserService userService, IDocumentationService docService)
     {
         _voteService = voteService;
         _configuration = configuration;
         _userService = userService;
+        _docService = docService;
     }
 
     public static ReplyKeyboardMarkup GetMenuKeyboard()
@@ -107,11 +111,12 @@ public class BrokerHandler
         if (text == "ℹ️ Loyiha ma'lumotlari" || text == "/info")
         {
             await _userService.UpdateStateAsync(dbUser.Id, BotState.Default, cancellationToken);
+            var (docText, docKeyboard) = _docService.GetMainMenu(dbUser.Role);
             await botClient.SendMessage(
                 chatId: message.Chat.Id,
-                text: BotConstants.ProjectInfoHtml,
+                text: docText,
                 parseMode: ParseMode.Html,
-                replyMarkup: replyMarkup,
+                replyMarkup: docKeyboard,
                 cancellationToken: cancellationToken);
             return;
         }

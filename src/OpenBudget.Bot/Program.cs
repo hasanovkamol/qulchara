@@ -27,17 +27,22 @@ builder.Services.AddDbContext<AppDbContext>(options =>
 builder.Services.AddScoped<IUserRepository, UserRepository>();
 builder.Services.AddScoped<IVoteRepository, VoteRepository>();
 builder.Services.AddScoped<ITelegramGroupRepository, TelegramGroupRepository>();
+builder.Services.AddScoped<IBotSettingRepository, BotSettingRepository>();
 
 // Services
 builder.Services.AddScoped<IVoteService, VoteService>();
 builder.Services.AddScoped<IUserService, UserService>();
 builder.Services.AddScoped<ITelegramGroupService, TelegramGroupService>();
+builder.Services.AddScoped<IBotSettingService, BotSettingService>();
 builder.Services.AddSingleton<ITokenService, TokenService>();
 builder.Services.AddSingleton<INotificationService, ErrorNotificationService>(); // Includes both Error and Main Bot notifications logic
+builder.Services.AddSingleton<IQrCodeService, OpenBudget.Application.Services.QrCodeService>();
+builder.Services.AddSingleton<OpenBudget.Bot.Services.IDocumentationService, OpenBudget.Bot.Services.DocumentationService>();
 
 // Handlers
 builder.Services.AddScoped<OpenBudget.Bot.Handlers.UpdateHandler>();
 builder.Services.AddScoped<OpenBudget.Bot.Handlers.GroupMemberHandler>();
+builder.Services.AddScoped<OpenBudget.Bot.Handlers.GuestHandler>();
 builder.Services.AddScoped<OpenBudget.Bot.Handlers.BrokerHandler>();
 builder.Services.AddScoped<OpenBudget.Bot.Handlers.AdminHandler>();
 builder.Services.AddScoped<OpenBudget.Bot.Handlers.SuperAdminHandler>();

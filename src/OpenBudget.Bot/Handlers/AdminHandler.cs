@@ -12,6 +12,8 @@ using Telegram.Bot.Types.Enums;
 using Telegram.Bot.Types.ReplyMarkups;
 using User = OpenBudget.Domain.Entities.User; // Alias to avoid collision
 
+using OpenBudget.Bot.Services;
+
 namespace OpenBudget.Bot.Handlers;
 
 public class AdminHandler
@@ -19,31 +21,37 @@ public class AdminHandler
     private readonly IVoteService _voteService;
     private readonly IConfiguration _configuration;
     private readonly IUserService _userService;
+    private readonly IBotSettingService _settingService;
     private readonly BrokerHandler _brokerHandler;
     private readonly SuperAdminHandler _superAdminHandler;
+    private readonly IDocumentationService _docService;
 
     public AdminHandler(
         IVoteService voteService, 
         IConfiguration configuration, 
         IUserService userService, 
+        IBotSettingService settingService,
         BrokerHandler brokerHandler,
-        SuperAdminHandler superAdminHandler)
+        SuperAdminHandler superAdminHandler,
+        IDocumentationService docService)
     {
         _voteService = voteService;
         _configuration = configuration;
         _userService = userService;
+        _settingService = settingService;
         _brokerHandler = brokerHandler;
         _superAdminHandler = superAdminHandler;
+        _docService = docService;
     }
 
     public static ReplyKeyboardMarkup GetMenuKeyboard()
     {
         return new ReplyKeyboardMarkup(new[]
         {
-            new[] { new KeyboardButton("👥 Brokerlar ro'yxati"), new KeyboardButton("📊 Brokerlar statistikasi") },
-            new[] { new KeyboardButton("✅ Ovoz tasdiqlash"), new KeyboardButton("📝 Ovoz qo'shish") },
-            new[] { new KeyboardButton("📋 Mening ovozlarim"), new KeyboardButton("📊 Mening statistikam") },
-            new[] { new KeyboardButton("ℹ️ Loyiha ma'lumotlari") }
+            new[] { new KeyboardButton("👥 Brokerlar ro'yxati"), new KeyboardButton("➕ Broker qo'shish") },
+            new[] { new KeyboardButton("📊 Brokerlar statistikasi"), new KeyboardButton("✅ Ovoz tasdiqlash") },
+            new[] { new KeyboardButton("📝 Ovoz qo'shish"), new KeyboardButton("📋 Mening ovozlarim") },
+            new[] { new KeyboardButton("📊 Mening statistikam"), new KeyboardButton("ℹ️ Loyiha ma'lumotlari") }
         }) { ResizeKeyboard = true };
     }
 
@@ -80,6 +88,19 @@ public class AdminHandler
         {
             await _userService.UpdateStateAsync(dbUser.Id, BotState.Default, cancellationToken);
             await _superAdminHandler.SendBrokersPageAsync(botClient, message.Chat.Id, 1, cancellationToken);
+            return;
+        }
+
+        if (text == "➕ Broker qo'shish")
+        {
+            await _userService.UpdateStateAsync(dbUser.Id, BotState.WaitingForBrokerIdentifier, cancellationToken);
+            await botClient.SendMessage(
+                chatId: message.Chat.Id,
+                text: "➕ <b>Broker Qo'shish</b>\n\n" +
+                      "Yangi brokerning <b>Telegram ID</b> sini (masalan <code>123456789</code>), <b>@username</b>ini (masalan <code>@foydalanuvchi</code>) yuboring yoki foydalanuvchi yuborgan xabarni ushbu chatga <b>Forward</b> qiling.",
+                parseMode: ParseMode.Html,
+                replyMarkup: BotConstants.GetCancelKeyboard(),
+                cancellationToken: cancellationToken);
             return;
         }
 
@@ -158,11 +179,12 @@ public class AdminHandler
         if (text == "ℹ️ Loyiha ma'lumotlari" || text == "/info")
         {
             await _userService.UpdateStateAsync(dbUser.Id, BotState.Default, cancellationToken);
+            var (docText, docKeyboard) = _docService.GetMainMenu(dbUser.Role);
             await botClient.SendMessage(
                 chatId: message.Chat.Id,
-                text: BotConstants.ProjectInfoHtml,
+                text: docText,
                 parseMode: ParseMode.Html,
-                replyMarkup: replyMarkup,
+                replyMarkup: docKeyboard,
                 cancellationToken: cancellationToken);
             return;
         }
@@ -172,23 +194,25 @@ public class AdminHandler
         if (dbUser.BotState == BotState.WaitingForConfirmation)
         {
             var parts = text.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            var digitsCount = await _settingService.GetLastDigitsCountAsync(cancellationToken);
+
             if (parts.Length < 2)
             {
                 await botClient.SendMessage(
                     chatId: message.Chat.Id,
-                    text: "Noto'g'ri format. Format: <code>123 15:30</code>",
+                    text: $"Noto'g'ri format. Format: <code>{new string('1', digitsCount)} 15:30</code>",
                     parseMode: ParseMode.Html,
                     replyMarkup: BotConstants.GetCancelKeyboard(),
                     cancellationToken: cancellationToken);
                 return;
             }
 
-            var last3 = parts[0];
-            if (last3.Length != 3 || !int.TryParse(last3, out _))
+            var lastNDigits = parts[0];
+            if (lastNDigits.Length != digitsCount || !long.TryParse(lastNDigits, out _))
             {
                 await botClient.SendMessage(
                     chatId: message.Chat.Id,
-                    text: "Oxirgi 3 ta raqam noto'g'ri. Misol: 123",
+                    text: $"Oxirgi {digitsCount} ta raqam noto'g'ri. Misol: {new string('1', digitsCount)}",
                     replyMarkup: BotConstants.GetCancelKeyboard(),
                     cancellationToken: cancellationToken);
                 return;
@@ -214,7 +238,7 @@ public class AdminHandler
 
             var windowHours = int.Parse(_configuration["VoteSettings:ConfirmTimeWindowHours"] ?? "1");
 
-            var result = await _voteService.ConfirmVoteAsync(dbUser.Id, last3, targetLocalTime, TimeSpan.FromHours(windowHours), cancellationToken);
+            var result = await _voteService.ConfirmVoteAsync(dbUser.Id, lastNDigits, targetLocalTime, TimeSpan.FromHours(windowHours), cancellationToken);
 
             var reply = result.Success ? $"✅ {result.Message}" : $"❌ {result.Message}";
             await _userService.UpdateStateAsync(dbUser.Id, BotState.Default, cancellationToken);
@@ -228,6 +252,42 @@ public class AdminHandler
             await _userService.UpdateStateAsync(dbUser.Id, BotState.Default, cancellationToken);
             await botClient.SendMessage(message.Chat.Id, replyText, replyMarkup: replyMarkup, cancellationToken: cancellationToken);
         }
+        else if (dbUser.BotState == BotState.WaitingForBrokerIdentifier)
+        {
+            string identifier = "";
+            if (message.ForwardFrom != null)
+            {
+                identifier = message.ForwardFrom.Id.ToString();
+            }
+            else if (!string.IsNullOrWhiteSpace(text))
+            {
+                identifier = text;
+            }
+
+            var result = await _userService.PromoteBrokerByIdentifierAsync(identifier, cancellationToken);
+            await _userService.UpdateStateAsync(dbUser.Id, BotState.Default, cancellationToken);
+
+            var replyText = result.Success ? $"✅ {result.Message}" : $"❌ {result.Message}";
+            await botClient.SendMessage(message.Chat.Id, replyText, replyMarkup: replyMarkup, cancellationToken: cancellationToken);
+
+            if (result.Success && result.TargetUser != null)
+            {
+                try
+                {
+                    await botClient.SendMessage(
+                        chatId: result.TargetUser.TelegramId,
+                        text: "🎉 <b>Tabriklaymiz!</b> Sizga administrator tomonidan <b>Broker</b>lik ruxsati berildi.\n\nBotdan foydalanish uchun /start tugmasini bosing.",
+                        parseMode: ParseMode.Html,
+                        replyMarkup: BrokerHandler.GetMenuKeyboard(),
+                        cancellationToken: cancellationToken);
+                }
+                catch
+                {
+                    // Ignore offline target user notification failure
+                }
+            }
+            return;
+        }
         else
         {
             await botClient.SendMessage(message.Chat.Id, "Iltimos, quyidagi menyu tugmalaridan foydalaning.", replyMarkup: replyMarkup, cancellationToken: cancellationToken);
@@ -237,7 +297,72 @@ public class AdminHandler
     public async Task HandleCallbackQueryAsync(ITelegramBotClient botClient, CallbackQuery callbackQuery, User dbUser, CancellationToken cancellationToken)
     {
         var data = callbackQuery.Data;
-        if (!string.IsNullOrEmpty(data) && (data.StartsWith("bpage_") || data.StartsWith("toggle_block_")))
+        if (string.IsNullOrEmpty(data)) return;
+
+        if (data.StartsWith("approve_broker_"))
+        {
+            if (int.TryParse(data.Replace("approve_broker_", ""), out int targetUserId))
+            {
+                await _userService.PromoteToBrokerAsync(targetUserId, cancellationToken);
+                var targetUser = await _userService.GetByIdAsync(targetUserId, cancellationToken);
+
+                await botClient.AnswerCallbackQuery(callbackQuery.Id, "✅ Broker muvaffaqiyatli tasdiqlandi!", showAlert: true, cancellationToken: cancellationToken);
+
+                try
+                {
+                    var updatedText = (callbackQuery.Message?.Text ?? "") + "\n\n✅ <b>Administrator tomonidan tasdiqlandi!</b>";
+                    await botClient.EditMessageText(callbackQuery.Message!.Chat.Id, callbackQuery.Message.MessageId, updatedText, parseMode: ParseMode.Html, cancellationToken: cancellationToken);
+                }
+                catch { }
+
+                if (targetUser != null)
+                {
+                    try
+                    {
+                        await botClient.SendMessage(
+                            chatId: targetUser.TelegramId,
+                            text: "🎉 <b>Tabriklaymiz!</b> Sizning brokerlik so'rovingiz administrator tomonidan tasdiqlandi.\n\nBotdan foydalanish uchun /start tugmasini bosing.",
+                            parseMode: ParseMode.Html,
+                            replyMarkup: BrokerHandler.GetMenuKeyboard(),
+                            cancellationToken: cancellationToken);
+                    }
+                    catch { }
+                }
+            }
+            return;
+        }
+        else if (data.StartsWith("reject_broker_"))
+        {
+            if (int.TryParse(data.Replace("reject_broker_", ""), out int targetUserId))
+            {
+                var targetUser = await _userService.GetByIdAsync(targetUserId, cancellationToken);
+
+                await botClient.AnswerCallbackQuery(callbackQuery.Id, "❌ Brokerlik so'rovi rad etildi.", showAlert: true, cancellationToken: cancellationToken);
+
+                try
+                {
+                    var updatedText = (callbackQuery.Message?.Text ?? "") + "\n\n❌ <b>Administrator tomonidan rad etildi!</b>";
+                    await botClient.EditMessageText(callbackQuery.Message!.Chat.Id, callbackQuery.Message.MessageId, updatedText, parseMode: ParseMode.Html, cancellationToken: cancellationToken);
+                }
+                catch { }
+
+                if (targetUser != null)
+                {
+                    try
+                    {
+                        await botClient.SendMessage(
+                            chatId: targetUser.TelegramId,
+                            text: "❌ Sizning brokerlik so'rovingiz administrator tomonidan rad etildi.",
+                            parseMode: ParseMode.Html,
+                            cancellationToken: cancellationToken);
+                    }
+                    catch { }
+                }
+            }
+            return;
+        }
+
+        if (data.StartsWith("bpage_") || data.StartsWith("toggle_block_"))
         {
             await _superAdminHandler.HandleCallbackQueryAsync(botClient, callbackQuery, dbUser, cancellationToken);
             return;

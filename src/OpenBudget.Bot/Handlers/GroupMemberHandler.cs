@@ -112,7 +112,7 @@ public class GroupMemberHandler
                 var existing = await _userService.GetByTelegramIdAsync(admin.User.Id, cancellationToken);
                 if (existing == null)
                 {
-                    await _userService.RegisterUserAsync(admin.User.Id, admin.User.Username, $"{admin.User.FirstName} {admin.User.LastName}".Trim(), UserRole.Broker, cancellationToken);
+                    await _userService.RegisterUserAsync(admin.User.Id, admin.User.Username, $"{admin.User.FirstName} {admin.User.LastName}".Trim(), UserRole.Guest, cancellationToken);
                     synced++;
                 }
             }
@@ -133,7 +133,7 @@ public class GroupMemberHandler
 
         try
         {
-            await _userService.RegisterUserAsync(tgUser.Id, tgUser.Username, $"{tgUser.FirstName} {tgUser.LastName}".Trim(), UserRole.Broker, cancellationToken);
+            await _userService.RegisterUserAsync(tgUser.Id, tgUser.Username, $"{tgUser.FirstName} {tgUser.LastName}".Trim(), UserRole.Guest, cancellationToken);
         }
         catch (Exception ex)
         {

@@ -30,7 +30,7 @@ public class UserService : IUserService
         return _userRepository.GetByTelegramIdAsync(telegramId, cancellationToken);
     }
 
-    public async Task<User> RegisterUserAsync(long telegramId, string? username, string? fullName, UserRole role = UserRole.Broker, CancellationToken cancellationToken = default)
+    public async Task<User> RegisterUserAsync(long telegramId, string? username, string? fullName, UserRole role = UserRole.Guest, CancellationToken cancellationToken = default)
     {
         var existingUser = await _userRepository.GetByTelegramIdAsync(telegramId, cancellationToken);
         if (existingUser != null)
@@ -111,6 +111,63 @@ public class UserService : IUserService
             targetUser.UpdatedAt = DateTimeHelper.UzbekistanNow;
             await _userRepository.UpdateAsync(targetUser, cancellationToken);
         }
+    }
+
+    public async Task PromoteToBrokerAsync(int userId, CancellationToken cancellationToken = default)
+    {
+        var targetUser = await _userRepository.GetByIdAsync(userId, cancellationToken);
+        if (targetUser != null)
+        {
+            targetUser.Role = UserRole.Broker;
+            targetUser.IsActive = true;
+            targetUser.UpdatedAt = DateTimeHelper.UzbekistanNow;
+            await _userRepository.UpdateAsync(targetUser, cancellationToken);
+        }
+    }
+
+    public async Task<(bool Success, string Message, User? TargetUser)> PromoteBrokerByIdentifierAsync(string identifier, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(identifier))
+        {
+            return (false, "Foydalanuvchi ma'lumoti kiritilmadi.", null);
+        }
+
+        identifier = identifier.Trim();
+        User? user = null;
+
+        if (long.TryParse(identifier, out long telegramId))
+        {
+            user = await _userRepository.GetByTelegramIdAsync(telegramId, cancellationToken);
+            if (user == null)
+            {
+                user = new User
+                {
+                    TelegramId = telegramId,
+                    Role = UserRole.Broker,
+                    IsActive = true,
+                    CreatedAt = DateTimeHelper.UzbekistanNow
+                };
+                await _userRepository.AddAsync(user, cancellationToken);
+                return (true, $"Yangi foydalanuvchi (ID: {telegramId}) yaratildi va Broker sifatida qo'shildi.", user);
+            }
+        }
+        else
+        {
+            var username = identifier.StartsWith("@") ? identifier.Substring(1) : identifier;
+            user = await _userRepository.GetByUsernameAsync(username, cancellationToken);
+            if (user == null)
+            {
+                return (false, $"@{username} nomli foydalanuvchi bazada topilmadi. U avval botga kamida bir marta /start yuborgan bo'lishi kerak.", null);
+            }
+        }
+
+        user.Role = UserRole.Broker;
+        user.IsActive = true;
+        user.UpdatedAt = DateTimeHelper.UzbekistanNow;
+        await _userRepository.UpdateAsync(user, cancellationToken);
+
+        var name = user.FullName ?? (string.IsNullOrEmpty(user.Username) ? user.TelegramId.ToString() : $"@{user.Username}");
+        return (true, $"Foydalanuvchi {name} Broker sifatida faollashtirildi.", user);
     }
 
     public async Task<(bool Success, string Message, bool NewStatus)> ToggleUserBlockAsync(int targetUserId, UserRole actorRole, CancellationToken cancellationToken = default)

@@ -40,6 +40,23 @@ public class BotService : BackgroundService
 
         var me = await _botClient.GetMe(stoppingToken);
         _logger.LogInformation($"Bot started @{me.Username}");
+
+        try
+        {
+            await _botClient.SetMyCommands(
+                new[]
+                {
+                    new Telegram.Bot.Types.BotCommand { Command = "start", Description = "Asosiy menyu" },
+                    new Telegram.Bot.Types.BotCommand { Command = "request", Description = "Brokerlik so'rovi yuborish" },
+                    new Telegram.Bot.Types.BotCommand { Command = "info", Description = "Loyiha ma'lumotlari" }
+                },
+                cancellationToken: stoppingToken
+            );
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to set global bot commands.");
+        }
     }
 
     private async Task HandleUpdateAsync(ITelegramBotClient botClient, Update update, CancellationToken cancellationToken)

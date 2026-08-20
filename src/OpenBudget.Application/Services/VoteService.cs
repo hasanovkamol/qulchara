@@ -54,9 +54,9 @@ public class VoteService : IVoteService
         return (true, $"{validation.FormattedNumber} qabul qilindi. Kutish holatida.");
     }
 
-    public async Task<(bool Success, string Message)> ConfirmVoteAsync(int adminId, string last3Digits, DateTime targetTime, TimeSpan timeWindow, CancellationToken cancellationToken = default)
+    public async Task<(bool Success, string Message)> ConfirmVoteAsync(int adminId, string lastNDigits, DateTime targetTime, TimeSpan timeWindow, CancellationToken cancellationToken = default)
     {
-        var vote = await _voteRepository.GetPendingVoteToConfirmAsync(last3Digits, targetTime, timeWindow, cancellationToken);
+        var vote = await _voteRepository.GetPendingVoteToConfirmAsync(lastNDigits, targetTime, timeWindow, cancellationToken);
         
         if (vote == null)
         {

@@ -44,16 +44,16 @@ public class VoteRepository : IVoteRepository
         return (items, totalCount);
     }
 
-    public Task<Vote?> GetPendingVoteToConfirmAsync(string last3Digits, DateTime targetTime, TimeSpan timeWindow, CancellationToken cancellationToken = default)
+    public Task<Vote?> GetPendingVoteToConfirmAsync(string lastNDigits, DateTime targetTime, TimeSpan timeWindow, CancellationToken cancellationToken = default)
     {
-        // EF Core might not translate ABS to SQL well depending on provider version, 
-        // but we can do a range check which is index friendly:
-        var minTime = targetTime.Subtract(timeWindow);
-        var maxTime = targetTime.Add(timeWindow);
+        // Vaqt oralig'i: kiritilgan vaqtdan -5 minut oldindan to kiritilgan/hozirgi vaqtgacha
+        var minTime = targetTime.AddMinutes(-5);
+        var now = OpenBudget.Domain.Helpers.DateTimeHelper.UzbekistanNow;
+        var maxTime = targetTime > now ? targetTime : now;
 
         return _context.Votes
             .Where(x => x.Status == VoteStatus.Pending 
-                        && x.PhoneNumber.EndsWith(last3Digits)
+                        && x.PhoneNumber.EndsWith(lastNDigits)
                         && x.VotedAt >= minTime 
                         && x.VotedAt <= maxTime)
             .OrderBy(x => x.VotedAt) // Birinchi insert bo'yicha confirm qilinadi (ASC)

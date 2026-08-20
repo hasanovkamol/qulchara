@@ -16,7 +16,7 @@ public interface IVoteRepository
     Task<(List<Vote> Items, int TotalCount)> GetByBrokerIdPagedAsync(int brokerId, int page, int pageSize, CancellationToken cancellationToken = default);
     
     // For Admin confirmation
-    Task<Vote?> GetPendingVoteToConfirmAsync(string last3Digits, DateTime targetTime, TimeSpan timeWindow, CancellationToken cancellationToken = default);
+    Task<Vote?> GetPendingVoteToConfirmAsync(string lastNDigits, DateTime targetTime, TimeSpan timeWindow, CancellationToken cancellationToken = default);
 
     Task AddAsync(Vote vote, CancellationToken cancellationToken = default);
     Task UpdateAsync(Vote vote, CancellationToken cancellationToken = default);
