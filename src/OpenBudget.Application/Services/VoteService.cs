@@ -99,6 +99,30 @@ public class VoteService : IVoteService
         };
     }
 
+    public async Task<PaginatedResult<VoteDto>> GetAllVotesPagedAsync(int page, int pageSize, CancellationToken cancellationToken = default)
+    {
+        var result = await _voteRepository.GetAllPagedAsync(page, pageSize, cancellationToken);
+        var dtos = result.Items.Select(v => new VoteDto
+        {
+            Id = v.Id,
+            BrokerId = v.BrokerId,
+            BrokerName = v.Broker?.FullName ?? "Noma'lum",
+            PhoneNumber = MaskPhoneNumber(v.PhoneNumber),
+            Status = v.Status,
+            VotedAt = v.VotedAt,
+            ConfirmedAt = v.ConfirmedAt,
+            RejectReason = v.RejectReason
+        }).ToList();
+
+        return new PaginatedResult<VoteDto>
+        {
+            Items = dtos,
+            TotalCount = result.TotalCount,
+            Page = page,
+            PageSize = pageSize
+        };
+    }
+
     public async Task<BrokerStatsDto> GetBrokerStatsAsync(int brokerId, CancellationToken cancellationToken = default)
     {
         var pending = await _voteRepository.GetCountByBrokerAndStatusAsync(brokerId, VoteStatus.Pending, cancellationToken);

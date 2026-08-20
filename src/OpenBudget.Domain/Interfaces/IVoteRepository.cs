@@ -15,6 +15,9 @@ public interface IVoteRepository
     // For pagination (Broker's view)
     Task<(List<Vote> Items, int TotalCount)> GetByBrokerIdPagedAsync(int brokerId, int page, int pageSize, CancellationToken cancellationToken = default);
     
+    // For pagination (All votes)
+    Task<(List<Vote> Items, int TotalCount)> GetAllPagedAsync(int page, int pageSize, CancellationToken cancellationToken = default);
+    
     // For Admin confirmation
     Task<Vote?> GetPendingVoteToConfirmAsync(string lastNDigits, DateTime targetTime, TimeSpan timeWindow, CancellationToken cancellationToken = default);
 

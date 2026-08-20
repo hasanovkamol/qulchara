@@ -153,11 +153,17 @@ public class AdminHandler
                             $"⏳ Kutilmoqda: <b>{stats.PendingVotes}</b>\n" +
                             $"❌ Rad etilgan: <b>{stats.RejectedVotes}</b>\n" +
                             $"━━━━━━━━━━━━━━━━━━";
+            
+            var inlineKeyboard = new InlineKeyboardMarkup(new[]
+            {
+                new[] { InlineKeyboardButton.WithCallbackData("📋 Jami ovozlar ro'yxati", "all_votes_1") }
+            });
+
             await botClient.SendMessage(
                 chatId: message.Chat.Id,
                 text: statsText,
                 parseMode: ParseMode.Html,
-                replyMarkup: replyMarkup,
+                replyMarkup: inlineKeyboard,
                 cancellationToken: cancellationToken);
             return;
         }
@@ -386,7 +392,7 @@ public class AdminHandler
             return;
         }
 
-        if (data.StartsWith("bpage_") || data.StartsWith("toggle_block_"))
+        if (data.StartsWith("bpage_") || data.StartsWith("toggle_block_") || data.StartsWith("all_votes_"))
         {
             await _superAdminHandler.HandleCallbackQueryAsync(botClient, callbackQuery, dbUser, cancellationToken);
             return;

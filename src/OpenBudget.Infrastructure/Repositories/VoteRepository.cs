@@ -44,6 +44,20 @@ public class VoteRepository : IVoteRepository
         return (items, totalCount);
     }
 
+    public async Task<(List<Vote> Items, int TotalCount)> GetAllPagedAsync(int page, int pageSize, CancellationToken cancellationToken = default)
+    {
+        var query = _context.Votes.Include(v => v.Broker);
+        var totalCount = await query.CountAsync(cancellationToken);
+        
+        var items = await query
+            .OrderByDescending(x => x.VotedAt)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .ToListAsync(cancellationToken);
+
+        return (items, totalCount);
+    }
+
     public Task<Vote?> GetPendingVoteToConfirmAsync(string lastNDigits, DateTime targetTime, TimeSpan timeWindow, CancellationToken cancellationToken = default)
     {
         // Vaqt oralig'i: kiritilgan vaqtdan -5 minut oldindan to kiritilgan/hozirgi vaqtgacha

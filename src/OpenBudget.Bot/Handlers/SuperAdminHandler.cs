@@ -188,11 +188,17 @@ public class SuperAdminHandler
                             $"⏳ Kutilmoqda: <b>{stats.PendingVotes}</b>\n" +
                             $"❌ Rad etilgan: <b>{stats.RejectedVotes}</b>\n" +
                             $"━━━━━━━━━━━━━━━━━━";
+            
+            var inlineKeyboard = new InlineKeyboardMarkup(new[]
+            {
+                new[] { InlineKeyboardButton.WithCallbackData("📋 Jami ovozlar ro'yxati", "all_votes_1") }
+            });
+
             await botClient.SendMessage(
                 chatId: message.Chat.Id,
                 text: statsText,
                 parseMode: ParseMode.Html,
-                replyMarkup: replyMarkup,
+                replyMarkup: inlineKeyboard,
                 cancellationToken: cancellationToken);
             return;
         }
@@ -644,10 +650,91 @@ public class SuperAdminHandler
             await botClient.AnswerCallbackQuery(callbackQuery.Id, $"✅ Yangi mehmonlarni qabul qilish {status}!", showAlert: true, cancellationToken: cancellationToken);
             await EditSettingsPageAsync(botClient, callbackQuery.Message!.Chat.Id, callbackQuery.Message.MessageId, cancellationToken);
         }
+        else if (data.StartsWith("all_votes_"))
+        {
+            if (int.TryParse(data.Replace("all_votes_", ""), out int page))
+            {
+                await EditAllVotesPageAsync(botClient, callbackQuery.Message!.Chat.Id, callbackQuery.Message.MessageId, page, cancellationToken);
+            }
+        }
         else if (data.StartsWith("page_"))
         {
             await _brokerHandler.HandleCallbackQueryAsync(botClient, callbackQuery, dbUser, cancellationToken);
         }
+    }
+
+    private async Task EditAllVotesPageAsync(ITelegramBotClient botClient, long chatId, int messageId, int page, CancellationToken cancellationToken)
+    {
+        var (text, inlineKeyboard) = await GenerateAllVotesPageAsync(page, cancellationToken);
+        await botClient.EditMessageText(
+            chatId: chatId,
+            messageId: messageId,
+            text: text,
+            parseMode: ParseMode.Html,
+            replyMarkup: inlineKeyboard,
+            cancellationToken: cancellationToken);
+    }
+
+    private async Task<(string Text, InlineKeyboardMarkup Keyboard)> GenerateAllVotesPageAsync(int page, CancellationToken cancellationToken)
+    {
+        int pageSize = 10;
+        var pagedResult = await _voteService.GetAllVotesPagedAsync(page, pageSize, cancellationToken);
+
+        string text;
+        if (pagedResult.TotalCount == 0)
+        {
+            text = "📋 <b>Jami Ovozlar</b>\n\nHozircha tizimda ovozlar mavjud emas.";
+        }
+        else
+        {
+            text = $"📋 <b>Jami Ovozlar Ro'yxati</b>\n\nJami: <b>{pagedResult.TotalCount}</b> ta ovoz\n\n";
+
+            int index = (page - 1) * pageSize + 1;
+            foreach (var vote in pagedResult.Items)
+            {
+                var statusEmoji = vote.Status switch
+                {
+                    VoteStatus.Confirmed => "✅",
+                    VoteStatus.Pending => "⏳",
+                    VoteStatus.Rejected => "❌",
+                    _ => "❔"
+                };
+
+                text += $"<b>{index}.</b> {vote.PhoneNumber} | {statusEmoji} ({vote.Status})\n" +
+                        $"   👤 <i>Broker:</i> {vote.BrokerName}\n" +
+                        $"   🕒 <i>{vote.VotedAt:dd-MM-yyyy HH:mm}</i>\n";
+                if (vote.Status == VoteStatus.Rejected && !string.IsNullOrEmpty(vote.RejectReason))
+                {
+                    text += $"   ℹ️ <i>{vote.RejectReason}</i>\n";
+                }
+                text += "\n";
+                index++;
+            }
+        }
+
+        int totalPages = (int)Math.Ceiling(pagedResult.TotalCount / (double)pageSize);
+        var buttons = new List<InlineKeyboardButton>();
+
+        if (page > 1)
+        {
+            buttons.Add(InlineKeyboardButton.WithCallbackData("⬅️ Oldingi", $"all_votes_{page - 1}"));
+        }
+        if (page < totalPages)
+        {
+            buttons.Add(InlineKeyboardButton.WithCallbackData("Keyingi ➡️", $"all_votes_{page + 1}"));
+        }
+
+        var keyboardLayout = new List<InlineKeyboardButton[]>();
+        if (buttons.Any())
+        {
+            keyboardLayout.Add(buttons.ToArray());
+        }
+
+        // Remove the back button if we don't have a specific place to return to, or return to page 1. Wait, there's no main menu to return to via inline.
+        // If we want a refresh button:
+        keyboardLayout.Add(new[] { InlineKeyboardButton.WithCallbackData("🔄 Yangilash", $"all_votes_{page}") });
+
+        return (text, new InlineKeyboardMarkup(keyboardLayout));
     }
 
     private async Task SendGroupsListAsync(ITelegramBotClient botClient, long chatId, CancellationToken cancellationToken)
