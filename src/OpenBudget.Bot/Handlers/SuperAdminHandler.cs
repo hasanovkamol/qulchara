@@ -202,7 +202,8 @@ public class SuperAdminHandler
             await _userService.UpdateStateAsync(dbUser.Id, BotState.WaitingForAdminId, cancellationToken);
             await botClient.SendMessage(
                 chatId: message.Chat.Id,
-                text: "Yangi adminga aylantirmoqchi bo'lgan foydalanuvchining ID raqamini kiriting:",
+                text: "🛡 <b>Admin tayinlash</b>\n\nYangi adminga aylantirmoqchi bo'lgan foydalanuvchining <b>Telegram ID</b> sini (masalan <code>123456789</code>) yoki <b>@username</b>ini (masalan <code>@foydalanuvchi</code>) yuboring:",
+                parseMode: ParseMode.Html,
                 replyMarkup: BotConstants.GetCancelKeyboard(),
                 cancellationToken: cancellationToken);
             return;
@@ -339,16 +340,10 @@ public class SuperAdminHandler
 
         if (dbUser.BotState == BotState.WaitingForAdminId)
         {
-            if (int.TryParse(text, out int targetUserId))
-            {
-                var result = await _userService.AssignRoleAsync(targetUserId, UserRole.Admin, UserRole.SuperAdmin, cancellationToken);
-                var reply = result.Success ? $"✅ {result.Message}" : $"❌ {result.Message}";
-                await botClient.SendMessage(message.Chat.Id, reply, replyMarkup: replyMarkup, cancellationToken: cancellationToken);
-            }
-            else
-            {
-                await botClient.SendMessage(message.Chat.Id, "Noto'g'ri ID kiritildi.", replyMarkup: replyMarkup, cancellationToken: cancellationToken);
-            }
+            var result = await _userService.AssignRoleByIdentifierAsync(text, UserRole.Admin, UserRole.SuperAdmin, cancellationToken);
+            var reply = result.Success ? $"✅ {result.Message}" : $"❌ {result.Message}";
+            await botClient.SendMessage(message.Chat.Id, reply, replyMarkup: replyMarkup, cancellationToken: cancellationToken);
+            
             await _userService.UpdateStateAsync(dbUser.Id, BotState.Default, cancellationToken);
             return;
         }
@@ -579,8 +574,16 @@ public class SuperAdminHandler
             {
                 var result = await _userService.ToggleUserBlockAsync(targetUserId, dbUser.Role, cancellationToken);
                 await botClient.AnswerCallbackQuery(callbackQuery.Id, result.Message, showAlert: true, cancellationToken: cancellationToken);
-                await EditBrokersPageAsync(botClient, callbackQuery.Message!.Chat.Id, callbackQuery.Message.MessageId, page, cancellationToken);
+                await EditBrokerOptionsPageAsync(botClient, callbackQuery.Message!.Chat.Id, callbackQuery.Message.MessageId, targetUserId, page, cancellationToken);
                 return;
+            }
+        }
+        else if (data.StartsWith("bopts_"))
+        {
+            var parts = data.Split('_');
+            if (parts.Length >= 3 && int.TryParse(parts[1], out int targetUserId) && int.TryParse(parts[2], out int page))
+            {
+                await EditBrokerOptionsPageAsync(botClient, callbackQuery.Message!.Chat.Id, callbackQuery.Message.MessageId, targetUserId, page, cancellationToken);
             }
         }
         else if (data.StartsWith("bpage_"))
@@ -748,18 +751,9 @@ public class SuperAdminHandler
             var shortName = b.FullName ?? b.Username ?? b.Id.ToString();
             if (shortName.Length > 15) shortName = shortName.Substring(0, 12) + "...";
 
-            var blockBtnText = b.IsActive 
-                ? $"🔴 Bloklash ({shortName})" 
-                : $"🟢 Blokdan chiqarish ({shortName})";
-
             buttons.Add(new[]
             {
-                InlineKeyboardButton.WithCallbackData($"📊 Statistika", $"admin_stats_{b.Id}"),
-                InlineKeyboardButton.WithCallbackData($"✉️ Xabar yozish", $"msg_broker_{b.Id}")
-            });
-            buttons.Add(new[]
-            {
-                InlineKeyboardButton.WithCallbackData(blockBtnText, $"toggle_block_{b.Id}_{page}")
+                InlineKeyboardButton.WithCallbackData($"⚙️ Boshqarish ({shortName})", $"bopts_{b.Id}_{page}")
             });
         }
 
@@ -777,6 +771,62 @@ public class SuperAdminHandler
         var markup = new InlineKeyboardMarkup(buttons);
         return (text, markup);
     }
+    public async Task EditBrokerOptionsPageAsync(ITelegramBotClient botClient, long chatId, int messageId, int brokerId, int returnPage, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var (text, markup) = await GenerateBrokerOptionsPageAsync(brokerId, returnPage, cancellationToken);
+            await botClient.EditMessageText(chatId, messageId, text, parseMode: ParseMode.Html, replyMarkup: markup, cancellationToken: cancellationToken);
+        }
+        catch
+        {
+            // Fallback for message not modified or editing exceptions
+        }
+    }
+
+    public async Task<(string Text, InlineKeyboardMarkup? Markup)> GenerateBrokerOptionsPageAsync(int brokerId, int returnPage, CancellationToken cancellationToken)
+    {
+        var targetUser = await _userService.GetByIdAsync(brokerId, cancellationToken);
+        if (targetUser == null)
+        {
+            return ("❌ <b>Foydalanuvchi topilmadi.</b>", new InlineKeyboardMarkup(InlineKeyboardButton.WithCallbackData("🔙 Orqaga", $"bpage_{returnPage}")));
+        }
+
+        var usernameText = string.IsNullOrEmpty(targetUser.Username) ? "" : $" (@{targetUser.Username})";
+        var statusBadge = targetUser.IsActive ? "🟢 <b>Faol</b>" : "🔴 <b>Bloklangan</b>";
+
+        var text = $"⚙️ <b>Broker Boshqaruvi</b>\n" +
+                   $"━━━━━━━━━━━━━━━━━━\n" +
+                   $"👤 Ism: <b>{targetUser.FullName ?? "Noma'lum"}</b>{usernameText}\n" +
+                   $"🆔 Tizim ID: <code>{targetUser.Id}</code>\n" +
+                   $"📞 Telegram ID: <code>{targetUser.TelegramId}</code>\n" +
+                   $"⚡️ Holati: {statusBadge}\n" +
+                   $"📅 Qo'shilgan: {targetUser.CreatedAt:dd.MM.yyyy HH:mm}\n" +
+                   $"━━━━━━━━━━━━━━━━━━";
+
+        var buttons = new List<InlineKeyboardButton[]>();
+
+        buttons.Add(new[]
+        {
+            InlineKeyboardButton.WithCallbackData($"📊 Statistika", $"admin_stats_{targetUser.Id}"),
+            InlineKeyboardButton.WithCallbackData($"✉️ Xabar yozish", $"msg_broker_{targetUser.Id}")
+        });
+
+        var blockBtnText = targetUser.IsActive ? "🔴 Bloklash" : "🟢 Blokdan chiqarish";
+        buttons.Add(new[]
+        {
+            InlineKeyboardButton.WithCallbackData(blockBtnText, $"toggle_block_{targetUser.Id}_{returnPage}")
+        });
+
+        buttons.Add(new[]
+        {
+            InlineKeyboardButton.WithCallbackData("🔙 Orqaga", $"bpage_{returnPage}")
+        });
+
+        var markup = new InlineKeyboardMarkup(buttons);
+        return (text, markup);
+    }
+
     public async Task SendGuestsPageAsync(ITelegramBotClient botClient, long chatId, int page, CancellationToken cancellationToken)
     {
         var (text, markup) = await GenerateGuestsPageAsync(page, cancellationToken);

@@ -92,6 +92,35 @@ public class UserService : IUserService
         return (true, "Rol muvaffaqiyatli o'zgartirildi.");
     }
 
+    public async Task<(bool Success, string Message)> AssignRoleByIdentifierAsync(string identifier, UserRole newRole, UserRole assignerRole, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(identifier))
+        {
+            return (false, "Foydalanuvchi ma'lumoti kiritilmadi.");
+        }
+
+        identifier = identifier.Trim();
+        User? targetUser = null;
+
+        if (long.TryParse(identifier, out long telegramId))
+        {
+            targetUser = await _userRepository.GetByTelegramIdAsync(telegramId, cancellationToken);
+        }
+        else
+        {
+            var username = identifier.StartsWith("@") ? identifier.Substring(1) : identifier;
+            targetUser = await _userRepository.GetByUsernameAsync(username, cancellationToken);
+        }
+
+        if (targetUser == null)
+        {
+            return (false, "Foydalanuvchi topilmadi. U botga start bosgan bo'lishi kerak.");
+        }
+
+        return await AssignRoleAsync(targetUser.Id, newRole, assignerRole, cancellationToken);
+    }
+
+
     public async Task UpdateStateAsync(int userId, BotState state, CancellationToken cancellationToken = default)
     {
         var targetUser = await _userRepository.GetByIdAsync(userId, cancellationToken);
