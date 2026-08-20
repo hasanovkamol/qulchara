@@ -59,12 +59,12 @@ public class SuperAdminHandler
         return new ReplyKeyboardMarkup(new[]
         {
             new[] { new KeyboardButton("🌍 Global Statistika"), new KeyboardButton("🛡 Admin tayinlash") },
-            new[] { new KeyboardButton("👥 Brokerlar ro'yxati"), new KeyboardButton("➕ Broker qo'shish") },
-            new[] { new KeyboardButton("📢 Ulangan guruhlar"), new KeyboardButton("⚙️ Sozlamalar") },
-            new[] { new KeyboardButton("✅ Ovoz tasdiqlash"), new KeyboardButton("🔲 QR Kod yuborish") },
-            new[] { new KeyboardButton("📨 Ommaviy xabar"), new KeyboardButton("📋 Mening ovozlarim") },
-            new[] { new KeyboardButton("📝 Ovoz qo'shish"), new KeyboardButton("📊 Mening statistikam") },
-            new[] { new KeyboardButton("ℹ️ Loyiha ma'lumotlari") }
+            new[] { new KeyboardButton("👥 Brokerlar ro'yxati"), new KeyboardButton("🚶‍♂️ Mehmonlar ro'yxati") },
+            new[] { new KeyboardButton("➕ Broker qo'shish"), new KeyboardButton("📢 Ulangan guruhlar") },
+            new[] { new KeyboardButton("⚙️ Sozlamalar"), new KeyboardButton("✅ Ovoz tasdiqlash") },
+            new[] { new KeyboardButton("🔲 QR Kod yuborish"), new KeyboardButton("📨 Ommaviy xabar") },
+            new[] { new KeyboardButton("📋 Mening ovozlarim"), new KeyboardButton("📝 Ovoz qo'shish") },
+            new[] { new KeyboardButton("📊 Mening statistikam"), new KeyboardButton("ℹ️ Loyiha ma'lumotlari") }
         }) { ResizeKeyboard = true };
     }
 
@@ -212,6 +212,13 @@ public class SuperAdminHandler
         {
             await _userService.UpdateStateAsync(dbUser.Id, BotState.Default, cancellationToken);
             await SendBrokersPageAsync(botClient, message.Chat.Id, 1, cancellationToken);
+            return;
+        }
+
+        if (text == "🚶‍♂️ Mehmonlar ro'yxati" || text == "/guests")
+        {
+            await _userService.UpdateStateAsync(dbUser.Id, BotState.Default, cancellationToken);
+            await SendGuestsPageAsync(botClient, message.Chat.Id, 1, cancellationToken);
             return;
         }
 
@@ -583,6 +590,40 @@ public class SuperAdminHandler
                 await EditBrokersPageAsync(botClient, callbackQuery.Message!.Chat.Id, callbackQuery.Message.MessageId, page, cancellationToken);
             }
         }
+        else if (data.StartsWith("gpage_"))
+        {
+            if (int.TryParse(data.Replace("gpage_", ""), out int page))
+            {
+                await EditGuestsPageAsync(botClient, callbackQuery.Message!.Chat.Id, callbackQuery.Message.MessageId, page, cancellationToken);
+            }
+        }
+        else if (data.StartsWith("make_broker_"))
+        {
+            if (int.TryParse(data.Replace("make_broker_", ""), out int targetUserId))
+            {
+                var result = await _userService.AssignRoleAsync(targetUserId, UserRole.Broker, dbUser.Role, cancellationToken);
+                await botClient.AnswerCallbackQuery(callbackQuery.Id, result.Message, showAlert: true, cancellationToken: cancellationToken);
+                
+                if (result.Success)
+                {
+                    try
+                    {
+                        var targetUser = await _userService.GetByIdAsync(targetUserId, cancellationToken);
+                        if (targetUser != null)
+                        {
+                            await botClient.SendMessage(
+                                chatId: targetUser.TelegramId,
+                                text: "🎉 <b>Tabriklaymiz!</b>\n\nSizga tizim administratori tomonidan <b>Broker</b> roli berildi. \nBot imkoniyatlaridan to'liq foydalanish uchun /start buyrug'ini yuboring.",
+                                parseMode: ParseMode.Html,
+                                cancellationToken: cancellationToken);
+                        }
+                    }
+                    catch { }
+
+                    await EditGuestsPageAsync(botClient, callbackQuery.Message!.Chat.Id, callbackQuery.Message.MessageId, 1, cancellationToken);
+                }
+            }
+        }
         else if (data.StartsWith("set_digits_"))
         {
             if (int.TryParse(data.Replace("set_digits_", ""), out int newCount))
@@ -730,6 +771,77 @@ public class SuperAdminHandler
         var prevButton = page > 1 ? InlineKeyboardButton.WithCallbackData("◀️ Oldingi", $"bpage_{prevPage}") : InlineKeyboardButton.WithCallbackData("🚫", "noop");
         var currButton = InlineKeyboardButton.WithCallbackData($"{page}/{totalPages}", "noop");
         var nextButton = page < totalPages ? InlineKeyboardButton.WithCallbackData("Keyingi ▶️", $"bpage_{nextPage}") : InlineKeyboardButton.WithCallbackData("🚫", "noop");
+
+        buttons.Add(new[] { prevButton, currButton, nextButton });
+
+        var markup = new InlineKeyboardMarkup(buttons);
+        return (text, markup);
+    }
+    public async Task SendGuestsPageAsync(ITelegramBotClient botClient, long chatId, int page, CancellationToken cancellationToken)
+    {
+        var (text, markup) = await GenerateGuestsPageAsync(page, cancellationToken);
+        await botClient.SendMessage(chatId, text, parseMode: ParseMode.Html, replyMarkup: markup, cancellationToken: cancellationToken);
+    }
+
+    public async Task EditGuestsPageAsync(ITelegramBotClient botClient, long chatId, int messageId, int page, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var (text, markup) = await GenerateGuestsPageAsync(page, cancellationToken);
+            await botClient.EditMessageText(chatId, messageId, text, parseMode: ParseMode.Html, replyMarkup: markup, cancellationToken: cancellationToken);
+        }
+        catch
+        {
+            // Fallback for message not modified or editing exceptions
+        }
+    }
+
+    public async Task<(string Text, InlineKeyboardMarkup? Markup)> GenerateGuestsPageAsync(int page, CancellationToken cancellationToken)
+    {
+        var allUsers = await _userService.GetAllUsersAsync(cancellationToken);
+        var guests = allUsers.Where(u => u.Role == UserRole.Guest).OrderByDescending(u => u.CreatedAt).ToList();
+
+        if (!guests.Any())
+        {
+            return ("🚶‍♂️ <b>Mehmonlar topilmadi.</b>", null);
+        }
+
+        int pageSize = 5;
+        var totalPages = (int)Math.Ceiling((double)guests.Count / pageSize);
+        if (page < 1) page = 1;
+        if (page > totalPages) page = totalPages;
+
+        var pagedGuests = guests.Skip((page - 1) * pageSize).Take(pageSize).ToList();
+
+        var text = $"🚶‍♂️ <b>Mehmonlar Ro'yxati</b> (Sahifa {page}/{totalPages}, Jami: {guests.Count} ta)\n" +
+                   $"━━━━━━━━━━━━━━━━━━\n";
+
+        var buttons = new List<InlineKeyboardButton[]>();
+
+        for (int i = 0; i < pagedGuests.Count; i++)
+        {
+            var g = pagedGuests[i];
+            var index = (page - 1) * pageSize + i + 1;
+            var usernameText = string.IsNullOrEmpty(g.Username) ? "" : $" (@{g.Username})";
+
+            text += $"{index}. <b>{g.FullName ?? "Noma'lum"}</b>{usernameText}\n" +
+                    $"   🆔 ID: <code>{g.Id}</code> | 📞 TG ID: <code>{g.TelegramId}</code>\n" +
+                    $"   📅 Kirdi: {g.CreatedAt:dd.MM.yyyy HH:mm}\n\n";
+
+            buttons.Add(new[]
+            {
+                InlineKeyboardButton.WithCallbackData($"✅ Broker qilish", $"make_broker_{g.Id}")
+            });
+        }
+
+        text += $"━━━━━━━━━━━━━━━━━━";
+
+        var prevPage = page > 1 ? page - 1 : 1;
+        var nextPage = page < totalPages ? page + 1 : totalPages;
+
+        var prevButton = page > 1 ? InlineKeyboardButton.WithCallbackData("◀️ Oldingi", $"gpage_{prevPage}") : InlineKeyboardButton.WithCallbackData("🚫", "noop");
+        var currButton = InlineKeyboardButton.WithCallbackData($"{page}/{totalPages}", "noop");
+        var nextButton = page < totalPages ? InlineKeyboardButton.WithCallbackData("Keyingi ▶️", $"gpage_{nextPage}") : InlineKeyboardButton.WithCallbackData("🚫", "noop");
 
         buttons.Add(new[] { prevButton, currButton, nextButton });
 

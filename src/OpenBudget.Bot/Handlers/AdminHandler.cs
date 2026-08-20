@@ -48,11 +48,11 @@ public class AdminHandler
     {
         return new ReplyKeyboardMarkup(new[]
         {
-            new[] { new KeyboardButton("👥 Brokerlar ro'yxati"), new KeyboardButton("➕ Broker qo'shish") },
-            new[] { new KeyboardButton("📊 Brokerlar statistikasi"), new KeyboardButton("✅ Ovoz tasdiqlash") },
-            new[] { new KeyboardButton("📨 Ommaviy xabar"), new KeyboardButton("📋 Mening ovozlarim") },
-            new[] { new KeyboardButton("📝 Ovoz qo'shish"), new KeyboardButton("📊 Mening statistikam") },
-            new[] { new KeyboardButton("ℹ️ Loyiha ma'lumotlari") }
+            new[] { new KeyboardButton("👥 Brokerlar ro'yxati"), new KeyboardButton("🚶‍♂️ Mehmonlar ro'yxati") },
+            new[] { new KeyboardButton("➕ Broker qo'shish"), new KeyboardButton("📊 Brokerlar statistikasi") },
+            new[] { new KeyboardButton("✅ Ovoz tasdiqlash"), new KeyboardButton("📨 Ommaviy xabar") },
+            new[] { new KeyboardButton("📋 Mening ovozlarim"), new KeyboardButton("📝 Ovoz qo'shish") },
+            new[] { new KeyboardButton("📊 Mening statistikam"), new KeyboardButton("ℹ️ Loyiha ma'lumotlari") }
         }) { ResizeKeyboard = true };
     }
 
@@ -105,6 +105,13 @@ public class AdminHandler
         {
             await _userService.UpdateStateAsync(dbUser.Id, BotState.Default, cancellationToken);
             await _superAdminHandler.SendBrokersPageAsync(botClient, message.Chat.Id, 1, cancellationToken);
+            return;
+        }
+
+        if (text == "🚶‍♂️ Mehmonlar ro'yxati" || text == "/guests")
+        {
+            await _userService.UpdateStateAsync(dbUser.Id, BotState.Default, cancellationToken);
+            await _superAdminHandler.SendGuestsPageAsync(botClient, message.Chat.Id, 1, cancellationToken);
             return;
         }
 
