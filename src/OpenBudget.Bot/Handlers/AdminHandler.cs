@@ -50,17 +50,43 @@ public class AdminHandler
         {
             new[] { new KeyboardButton("👥 Brokerlar ro'yxati"), new KeyboardButton("➕ Broker qo'shish") },
             new[] { new KeyboardButton("📊 Brokerlar statistikasi"), new KeyboardButton("✅ Ovoz tasdiqlash") },
-            new[] { new KeyboardButton("📝 Ovoz qo'shish"), new KeyboardButton("📋 Mening ovozlarim") },
-            new[] { new KeyboardButton("📊 Mening statistikam"), new KeyboardButton("ℹ️ Loyiha ma'lumotlari") }
+            new[] { new KeyboardButton("📨 Ommaviy xabar"), new KeyboardButton("📋 Mening ovozlarim") },
+            new[] { new KeyboardButton("📝 Ovoz qo'shish"), new KeyboardButton("📊 Mening statistikam") },
+            new[] { new KeyboardButton("ℹ️ Loyiha ma'lumotlari") }
         }) { ResizeKeyboard = true };
     }
 
     public async Task HandleMessageAsync(ITelegramBotClient botClient, Message message, User dbUser, CancellationToken cancellationToken)
     {
-        var text = message.Text?.Trim();
-        if (string.IsNullOrEmpty(text)) return;
-
+        var text = message.Text?.Trim() ?? message.Caption?.Trim();
         var replyMarkup = GetMenuKeyboard();
+
+        if (text == "🔙 Bekor qilish" || text == "/cancel")
+        {
+            await _userService.UpdateStateAsync(dbUser.Id, BotState.Default, cancellationToken);
+            await botClient.SendMessage(
+                chatId: message.Chat.Id,
+                text: "Amal bekor qilindi.",
+                replyMarkup: replyMarkup,
+                cancellationToken: cancellationToken);
+            return;
+        }
+
+        if (dbUser.BotState == BotState.WaitingForBroadcastMessage || dbUser.BotState == BotState.WaitingForDirectMessage)
+        {
+            await _superAdminHandler.HandleMessageAsync(botClient, message, dbUser, cancellationToken);
+            return;
+        }
+        else if (string.IsNullOrEmpty(text))
+        {
+            return;
+        }
+
+        if (text == "📨 Ommaviy xabar" || text == "/broadcast")
+        {
+            await _superAdminHandler.HandleMessageAsync(botClient, message, dbUser, cancellationToken);
+            return;
+        }
 
         if (text == "/start")
         {
@@ -73,16 +99,7 @@ public class AdminHandler
             return;
         }
 
-        if (text == "🔙 Bekor qilish" || text == "/cancel")
-        {
-            await _userService.UpdateStateAsync(dbUser.Id, BotState.Default, cancellationToken);
-            await botClient.SendMessage(
-                chatId: message.Chat.Id,
-                text: "Amal bekor qilindi.",
-                replyMarkup: replyMarkup,
-                cancellationToken: cancellationToken);
-            return;
-        }
+
 
         if (text == "👥 Brokerlar ro'yxati" || text == "/brokers")
         {
@@ -189,7 +206,7 @@ public class AdminHandler
             return;
         }
 
-        if (text.StartsWith("/")) return;
+        if (text != null && text.StartsWith("/")) return;
 
         if (dbUser.BotState == BotState.WaitingForConfirmation)
         {

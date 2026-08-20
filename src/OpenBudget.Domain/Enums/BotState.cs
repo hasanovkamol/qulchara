@@ -8,5 +8,7 @@ public enum BotState
     WaitingForAdminId = 3,
     WaitingForBrokerRequestInfo = 4,
     WaitingForBrokerIdentifier = 5,
-    WaitingForQrUrl = 6
+    WaitingForQrUrl = 6,
+    WaitingForBroadcastMessage = 7,
+    WaitingForDirectMessage = 8
 }

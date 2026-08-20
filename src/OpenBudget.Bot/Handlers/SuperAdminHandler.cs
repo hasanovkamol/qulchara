@@ -16,12 +16,15 @@ using User = OpenBudget.Domain.Entities.User;
 
 using System.IO;
 
+using System.Collections.Concurrent;
 using OpenBudget.Bot.Services;
 
 namespace OpenBudget.Bot.Handlers;
 
 public class SuperAdminHandler
 {
+    private static readonly ConcurrentDictionary<int, int> _directMessageTargets = new();
+
     private readonly IUserService _userService;
     private readonly IVoteService _voteService;
     private readonly ITelegramGroupService _groupService;
@@ -59,17 +62,105 @@ public class SuperAdminHandler
             new[] { new KeyboardButton("👥 Brokerlar ro'yxati"), new KeyboardButton("➕ Broker qo'shish") },
             new[] { new KeyboardButton("📢 Ulangan guruhlar"), new KeyboardButton("⚙️ Sozlamalar") },
             new[] { new KeyboardButton("✅ Ovoz tasdiqlash"), new KeyboardButton("🔲 QR Kod yuborish") },
-            new[] { new KeyboardButton("📝 Ovoz qo'shish"), new KeyboardButton("📋 Mening ovozlarim") },
-            new[] { new KeyboardButton("📊 Mening statistikam"), new KeyboardButton("ℹ️ Loyiha ma'lumotlari") }
+            new[] { new KeyboardButton("📨 Ommaviy xabar"), new KeyboardButton("📋 Mening ovozlarim") },
+            new[] { new KeyboardButton("📝 Ovoz qo'shish"), new KeyboardButton("📊 Mening statistikam") },
+            new[] { new KeyboardButton("ℹ️ Loyiha ma'lumotlari") }
         }) { ResizeKeyboard = true };
     }
 
     public async Task HandleMessageAsync(ITelegramBotClient botClient, Message message, User dbUser, CancellationToken cancellationToken)
     {
-        var text = message.Text?.Trim();
-        if (string.IsNullOrEmpty(text)) return;
-
+        var text = message.Text?.Trim() ?? message.Caption?.Trim();
         var replyMarkup = GetMenuKeyboard();
+
+        if (text == "🔙 Bekor qilish" || text == "/cancel")
+        {
+            await _userService.UpdateStateAsync(dbUser.Id, BotState.Default, cancellationToken);
+            await botClient.SendMessage(
+                chatId: message.Chat.Id,
+                text: "Amal bekor qilindi.",
+                replyMarkup: replyMarkup,
+                cancellationToken: cancellationToken);
+            return;
+        }
+
+        if (dbUser.BotState == BotState.WaitingForBroadcastMessage || dbUser.BotState == BotState.WaitingForDirectMessage)
+        {
+            if (dbUser.BotState == BotState.WaitingForBroadcastMessage)
+            {
+                var allUsers = await _userService.GetAllUsersAsync(cancellationToken);
+                var brokers = allUsers.Where(u => u.Role == UserRole.Broker && u.IsActive).ToList();
+                int successCount = 0;
+
+                foreach (var broker in brokers)
+                {
+                    try
+                    {
+                        await botClient.CopyMessage(
+                            chatId: broker.TelegramId,
+                            fromChatId: message.Chat.Id,
+                            messageId: message.MessageId,
+                            cancellationToken: cancellationToken);
+                        successCount++;
+                    }
+                    catch { }
+                }
+
+                await _userService.UpdateStateAsync(dbUser.Id, BotState.Default, cancellationToken);
+                await botClient.SendMessage(
+                    chatId: message.Chat.Id,
+                    text: $"✅ Xabar <b>{successCount}</b> ta brokerga muvaffaqiyatli yuborildi.",
+                    parseMode: ParseMode.Html,
+                    replyMarkup: replyMarkup,
+                    cancellationToken: cancellationToken);
+                return;
+            }
+            else if (dbUser.BotState == BotState.WaitingForDirectMessage)
+            {
+                if (_directMessageTargets.TryGetValue(dbUser.Id, out int targetUserId))
+                {
+                    var targetUser = await _userService.GetByIdAsync(targetUserId, cancellationToken);
+                    if (targetUser != null && targetUser.IsActive)
+                    {
+                        try
+                        {
+                            await botClient.CopyMessage(
+                                chatId: targetUser.TelegramId,
+                                fromChatId: message.Chat.Id,
+                                messageId: message.MessageId,
+                                cancellationToken: cancellationToken);
+                            
+                            await botClient.SendMessage(
+                                chatId: message.Chat.Id,
+                                text: $"✅ Xabar <b>{targetUser.FullName}</b> ga muvaffaqiyatli yuborildi.",
+                                parseMode: ParseMode.Html,
+                                replyMarkup: replyMarkup,
+                                cancellationToken: cancellationToken);
+                        }
+                        catch (Exception ex)
+                        {
+                            await botClient.SendMessage(
+                                chatId: message.Chat.Id,
+                                text: $"❌ <b>{targetUser.FullName}</b> ga xabar yuborishda xatolik yuz berdi.\nSabab: {ex.Message}",
+                                parseMode: ParseMode.Html,
+                                replyMarkup: replyMarkup,
+                                cancellationToken: cancellationToken);
+                        }
+                    }
+                    else
+                    {
+                        await botClient.SendMessage(message.Chat.Id, "❌ Broker topilmadi yoki bloklangan.", replyMarkup: replyMarkup, cancellationToken: cancellationToken);
+                    }
+                    _directMessageTargets.TryRemove(dbUser.Id, out _);
+                }
+                await _userService.UpdateStateAsync(dbUser.Id, BotState.Default, cancellationToken);
+                return;
+            }
+        }
+        else if (string.IsNullOrEmpty(text))
+        {
+            return;
+        }
 
         if (text == "/start")
         {
@@ -82,16 +173,7 @@ public class SuperAdminHandler
             return;
         }
 
-        if (text == "🔙 Bekor qilish" || text == "/cancel")
-        {
-            await _userService.UpdateStateAsync(dbUser.Id, BotState.Default, cancellationToken);
-            await botClient.SendMessage(
-                chatId: message.Chat.Id,
-                text: "Amal bekor qilindi.",
-                replyMarkup: replyMarkup,
-                cancellationToken: cancellationToken);
-            return;
-        }
+
 
         if (text == "🌍 Global Statistika" || text == "/globalstats")
         {
@@ -157,6 +239,18 @@ public class SuperAdminHandler
         {
             await _userService.UpdateStateAsync(dbUser.Id, BotState.Default, cancellationToken);
             await SendSettingsPageAsync(botClient, message.Chat.Id, cancellationToken);
+            return;
+        }
+
+        if (text == "📨 Ommaviy xabar" || text == "/broadcast")
+        {
+            await _userService.UpdateStateAsync(dbUser.Id, BotState.WaitingForBroadcastMessage, cancellationToken);
+            await botClient.SendMessage(
+                chatId: message.Chat.Id,
+                text: "📨 <b>Barcha brokerlarga xabar yuborish</b>\n\nIltimos, xabar matnini kiriting (rasm/video qo'shsangiz ham bo'ladi):",
+                parseMode: ParseMode.Html,
+                replyMarkup: BotConstants.GetCancelKeyboard(),
+                cancellationToken: cancellationToken);
             return;
         }
 
@@ -234,7 +328,7 @@ public class SuperAdminHandler
             return;
         }
 
-        if (text.StartsWith("/")) return;
+        if (text != null && text.StartsWith("/")) return;
 
         if (dbUser.BotState == BotState.WaitingForAdminId)
         {
@@ -446,6 +540,31 @@ public class SuperAdminHandler
             }
             return;
         }
+        else if (data.StartsWith("msg_broker_"))
+        {
+            if (int.TryParse(data.Replace("msg_broker_", ""), out int targetUserId))
+            {
+                var targetUser = await _userService.GetByIdAsync(targetUserId, cancellationToken);
+                if (targetUser != null)
+                {
+                    await _userService.UpdateStateAsync(dbUser.Id, BotState.WaitingForDirectMessage, cancellationToken);
+                    _directMessageTargets[dbUser.Id] = targetUserId;
+                    
+                    await botClient.AnswerCallbackQuery(callbackQuery.Id, cancellationToken: cancellationToken);
+                    await botClient.SendMessage(
+                        chatId: callbackQuery.Message!.Chat.Id,
+                        text: $"✉️ <b>{targetUser.FullName}</b> ga yubormoqchi bo'lgan xabaringizni kiriting (rasm yoki matn):",
+                        parseMode: ParseMode.Html,
+                        replyMarkup: BotConstants.GetCancelKeyboard(),
+                        cancellationToken: cancellationToken);
+                }
+                else
+                {
+                    await botClient.AnswerCallbackQuery(callbackQuery.Id, "Broker topilmadi.", showAlert: true, cancellationToken: cancellationToken);
+                }
+            }
+            return;
+        }
         else if (data.StartsWith("toggle_block_"))
         {
             var parts = data.Split('_');
@@ -594,7 +713,8 @@ public class SuperAdminHandler
 
             buttons.Add(new[]
             {
-                InlineKeyboardButton.WithCallbackData($"📊 Statistika", $"admin_stats_{b.Id}")
+                InlineKeyboardButton.WithCallbackData($"📊 Statistika", $"admin_stats_{b.Id}"),
+                InlineKeyboardButton.WithCallbackData($"✉️ Xabar yozish", $"msg_broker_{b.Id}")
             });
             buttons.Add(new[]
             {
