@@ -416,6 +416,36 @@ public class SuperAdminHandler
             }
             return;
         }
+        else if (data.StartsWith("admin_stats_"))
+        {
+            if (int.TryParse(data.Replace("admin_stats_", ""), out int targetUserId))
+            {
+                var targetUser = await _userService.GetByIdAsync(targetUserId, cancellationToken);
+                if (targetUser != null)
+                {
+                    var stats = await _voteService.GetBrokerStatsAsync(targetUserId, cancellationToken);
+                    var statsText = $"📊 <b>Broker statistikasi: {targetUser.FullName}</b>\n" +
+                                    $"━━━━━━━━━━━━━━━━━━\n" +
+                                    $"📋 Jami ovozlar: <b>{stats.TotalVotes}</b>\n" +
+                                    $"✅ Tasdiqlangan: <b>{stats.ConfirmedVotes}</b>\n" +
+                                    $"⏳ Kutilmoqda: <b>{stats.PendingVotes}</b>\n" +
+                                    $"❌ Rad etilgan: <b>{stats.RejectedVotes}</b>\n" +
+                                    $"━━━━━━━━━━━━━━━━━━";
+                    
+                    await botClient.AnswerCallbackQuery(callbackQuery.Id, "Ma'lumot yuklandi", cancellationToken: cancellationToken);
+                    await botClient.SendMessage(
+                        chatId: callbackQuery.Message!.Chat.Id,
+                        text: statsText,
+                        parseMode: ParseMode.Html,
+                        cancellationToken: cancellationToken);
+                }
+                else
+                {
+                    await botClient.AnswerCallbackQuery(callbackQuery.Id, "Broker topilmadi.", showAlert: true, cancellationToken: cancellationToken);
+                }
+            }
+            return;
+        }
         else if (data.StartsWith("toggle_block_"))
         {
             var parts = data.Split('_');
@@ -442,6 +472,14 @@ public class SuperAdminHandler
                 await botClient.AnswerCallbackQuery(callbackQuery.Id, $"✅ Ovoz tasdiqlash uchun oxirgi {newCount} ta raqam tekshiriladi!", showAlert: true, cancellationToken: cancellationToken);
                 await EditSettingsPageAsync(botClient, callbackQuery.Message!.Chat.Id, callbackQuery.Message.MessageId, cancellationToken);
             }
+        }
+        else if (data == "toggle_guest_reg")
+        {
+            var allowGuests = await _settingService.GetAllowGuestRegistrationAsync(cancellationToken);
+            await _settingService.SetAllowGuestRegistrationAsync(!allowGuests, cancellationToken);
+            var status = !allowGuests ? "yoqildi" : "o'chirildi";
+            await botClient.AnswerCallbackQuery(callbackQuery.Id, $"✅ Yangi mehmonlarni qabul qilish {status}!", showAlert: true, cancellationToken: cancellationToken);
+            await EditSettingsPageAsync(botClient, callbackQuery.Message!.Chat.Id, callbackQuery.Message.MessageId, cancellationToken);
         }
         else if (data.StartsWith("page_"))
         {
@@ -556,6 +594,10 @@ public class SuperAdminHandler
 
             buttons.Add(new[]
             {
+                InlineKeyboardButton.WithCallbackData($"📊 Statistika", $"admin_stats_{b.Id}")
+            });
+            buttons.Add(new[]
+            {
                 InlineKeyboardButton.WithCallbackData(blockBtnText, $"toggle_block_{b.Id}_{page}")
             });
         }
@@ -597,22 +639,31 @@ public class SuperAdminHandler
     private async Task<(string Text, InlineKeyboardMarkup Markup)> GenerateSettingsPageAsync(CancellationToken cancellationToken)
     {
         var count = await _settingService.GetLastDigitsCountAsync(cancellationToken);
+        var allowGuests = await _settingService.GetAllowGuestRegistrationAsync(cancellationToken);
+
+        var guestStatusText = allowGuests ? "✅ Yoqilgan" : "❌ O'chirilgan";
 
         var text = $"⚙️ <b>Tizim Sozlamalari</b>\n" +
                    $"━━━━━━━━━━━━━━━━━━\n" +
+                   $"👥 Yangi mehmonlarni qabul qilish: <b>{guestStatusText}</b>\n\n" +
                    $"📱 Ovoz tasdiqlashda tekshiriladigan oxirgi raqamlar soni: <b>{count} ta</b>\n\n" +
                    $"💡 <i>SMS kelganda telefon raqamining oxirgi necha xonasi bo'yicha qidirilishini tanlang:</i>";
 
         var buttons = new List<InlineKeyboardButton[]>();
-        var row = new List<InlineKeyboardButton>();
-
+        
+        // Digits setting
+        var digitsRow = new List<InlineKeyboardButton>();
         for (int i = 2; i <= 5; i++)
         {
             var label = i == count ? $"✅ {i} ta" : $"{i} ta";
-            row.Add(InlineKeyboardButton.WithCallbackData(label, $"set_digits_{i}"));
+            digitsRow.Add(InlineKeyboardButton.WithCallbackData(label, $"set_digits_{i}"));
         }
+        buttons.Add(digitsRow.ToArray());
 
-        buttons.Add(row.ToArray());
+        // Guest toggle setting
+        var guestToggleLabel = allowGuests ? "❌ Qabulni o'chirish" : "✅ Qabulni yoqish";
+        buttons.Add(new[] { InlineKeyboardButton.WithCallbackData(guestToggleLabel, "toggle_guest_reg") });
+
         return (text, new InlineKeyboardMarkup(buttons));
     }
 }

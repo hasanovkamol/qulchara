@@ -39,4 +39,26 @@ public class BotSettingService : IBotSettingService
 
         return true;
     }
+
+    public async Task<bool> GetAllowGuestRegistrationAsync(CancellationToken cancellationToken = default)
+    {
+        var setting = await _settingRepository.GetByKeyAsync("AllowGuestRegistration", cancellationToken);
+        if (setting != null && bool.TryParse(setting.Value, out bool allow))
+        {
+            return allow;
+        }
+
+        return true; // Default is allowed
+    }
+
+    public async Task<bool> SetAllowGuestRegistrationAsync(bool allow, CancellationToken cancellationToken = default)
+    {
+        await _settingRepository.SetValueAsync(
+            "AllowGuestRegistration", 
+            allow.ToString(), 
+            "Yangi foydalanuvchilar (Mehmonlar) botga qo'shilishiga ruxsat", 
+            cancellationToken);
+
+        return true;
+    }
 }

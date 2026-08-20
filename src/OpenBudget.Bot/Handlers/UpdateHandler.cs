@@ -25,6 +25,7 @@ public class UpdateHandler
     private readonly INotificationService _notificationService;
     private readonly IConfiguration _configuration;
     private readonly IDocumentationService _docService;
+    private readonly IBotSettingService _botSettingService;
 
     public UpdateHandler(
         IUserService userService,
@@ -35,7 +36,8 @@ public class UpdateHandler
         GuestHandler guestHandler,
         INotificationService notificationService,
         IConfiguration configuration,
-        IDocumentationService docService)
+        IDocumentationService docService,
+        IBotSettingService botSettingService)
     {
         _userService = userService;
         _groupMemberHandler = groupMemberHandler;
@@ -46,6 +48,7 @@ public class UpdateHandler
         _notificationService = notificationService;
         _configuration = configuration;
         _docService = docService;
+        _botSettingService = botSettingService;
     }
 
     public async Task HandleUpdateAsync(ITelegramBotClient botClient, Update update, CancellationToken cancellationToken)
@@ -103,8 +106,14 @@ public class UpdateHandler
 
         if (dbUser == null)
         {
-            await botClient.SendMessage(message.Chat.Id, "Siz hali ro'yxatdan o'tmagansiz. Iltimos, biriktirilgan guruhga qo'shiling.", cancellationToken: cancellationToken);
-            return;
+            var allowGuests = await _botSettingService.GetAllowGuestRegistrationAsync(cancellationToken);
+            if (!allowGuests)
+            {
+                await botClient.SendMessage(message.Chat.Id, "Tizimga yangi foydalanuvchilar qabul qilinishi vaqtincha to'xtatilgan.", cancellationToken: cancellationToken);
+                return;
+            }
+
+            dbUser = await _userService.RegisterUserAsync(tgUser.Id, tgUser.Username, $"{tgUser.FirstName} {tgUser.LastName}".Trim(), UserRole.Guest, cancellationToken);
         }
 
         if (!dbUser.IsActive)
