@@ -280,9 +280,11 @@ public class SuperAdminHandler
         if (text == "✅ Ovoz tasdiqlash" || text == "/confirm")
         {
             await _userService.UpdateStateAsync(dbUser.Id, BotState.WaitingForConfirmation, cancellationToken);
+            var now = OpenBudget.Application.Helpers.DateTimeHelper.UzbekistanNow;
             await botClient.SendMessage(
                 chatId: message.Chat.Id,
-                text: "✅ Ovoz tasdiqlash uchun SMS matnini kiritng:\n(Masalan: Ovoz tasdiqlandi. 1234 16:51)",
+                text: $"Tasdiqlash uchun oxirgi raqamlarni, kunni va vaqtni kiriting.\nFormat: <code>[Raqamlar] [Kun] [Soat:Minut]</code>\nHozirgi vaqt bilan misol: <code>{new string('1', 3)} {now:dd} {now:HH:mm}</code>",
+                parseMode: ParseMode.Html,
                 replyMarkup: BotConstants.GetCancelKeyboard(),
                 cancellationToken: cancellationToken);
             return;
@@ -406,11 +408,12 @@ public class SuperAdminHandler
             var parts = text.Split(' ', StringSplitOptions.RemoveEmptyEntries);
             var digitsCount = await _settingService.GetLastDigitsCountAsync(cancellationToken);
 
-            if (parts.Length < 2)
+            if (parts.Length < 3)
             {
+                var now = OpenBudget.Application.Helpers.DateTimeHelper.UzbekistanNow;
                 await botClient.SendMessage(
                     chatId: message.Chat.Id,
-                    text: $"Noto'g'ri format. Format: <code>{new string('1', digitsCount)} 15:30</code>",
+                    text: $"Noto'g'ri format.\nFormat: <code>[Raqamlar] [Kun] [Soat:Minut]</code>\nMisol: <code>{new string('1', digitsCount)} {now:dd} {now:HH:mm}</code>",
                     parseMode: ParseMode.Html,
                     replyMarkup: BotConstants.GetCancelKeyboard(),
                     cancellationToken: cancellationToken);
@@ -428,7 +431,17 @@ public class SuperAdminHandler
                 return;
             }
 
-            if (!TimeSpan.TryParse(parts[1], out TimeSpan time))
+            if (!int.TryParse(parts[1], out int day) || day < 1 || day > 31)
+            {
+                await botClient.SendMessage(
+                    chatId: message.Chat.Id,
+                    text: "Sana (kun) noto'g'ri kiritildi. Misol: 01 dan 31 gacha.",
+                    replyMarkup: BotConstants.GetCancelKeyboard(),
+                    cancellationToken: cancellationToken);
+                return;
+            }
+
+            if (!TimeSpan.TryParse(parts[2], out TimeSpan time))
             {
                 await botClient.SendMessage(
                     chatId: message.Chat.Id,
@@ -439,11 +452,30 @@ public class SuperAdminHandler
             }
 
             var localTimeNow = OpenBudget.Application.Helpers.DateTimeHelper.UzbekistanNow;
-            var targetLocalTime = localTimeNow.Date + time;
-            
-            if (targetLocalTime > localTimeNow.AddHours(1)) 
+            int currentYear = localTimeNow.Year;
+            int currentMonth = localTimeNow.Month;
+
+            // Agar kiritilgan kun hozirgi kundan katta bo'lsa va hozir oyning boshi bo'lsa, ehtimol admin o'tgan oyni kirityapti
+            if (day > localTimeNow.Day && localTimeNow.Day < 5)
             {
-                targetLocalTime = targetLocalTime.AddDays(-1);
+                var lastMonth = localTimeNow.AddMonths(-1);
+                currentYear = lastMonth.Year;
+                currentMonth = lastMonth.Month;
+            }
+
+            DateTime targetLocalTime;
+            try
+            {
+                targetLocalTime = new DateTime(currentYear, currentMonth, day, time.Hours, time.Minutes, 0);
+            }
+            catch
+            {
+                await botClient.SendMessage(
+                    chatId: message.Chat.Id,
+                    text: "Kiritilgan kun yoki vaqt noto'g'ri (masalan fevralda 30-kun yo'q). Qaytadan kiriting.",
+                    replyMarkup: BotConstants.GetCancelKeyboard(),
+                    cancellationToken: cancellationToken);
+                return;
             }
 
             var windowHours = int.Parse(_configuration["VoteSettings:ConfirmTimeWindowHours"] ?? "1");
