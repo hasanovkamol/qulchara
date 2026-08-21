@@ -49,10 +49,12 @@ public class AdminHandler
         return new ReplyKeyboardMarkup(new[]
         {
             new[] { new KeyboardButton("👥 Brokerlar ro'yxati"), new KeyboardButton("🚶‍♂️ Mehmonlar ro'yxati") },
-            new[] { new KeyboardButton("➕ Broker qo'shish"), new KeyboardButton("📊 Brokerlar statistikasi") },
-            new[] { new KeyboardButton("✅ Ovoz tasdiqlash"), new KeyboardButton("📨 Ommaviy xabar") },
-            new[] { new KeyboardButton("📋 Mening ovozlarim"), new KeyboardButton("📝 Ovoz qo'shish") },
-            new[] { new KeyboardButton("📊 Mening statistikam"), new KeyboardButton("ℹ️ Loyiha ma'lumotlari") }
+            new[] { new KeyboardButton("🛡 Adminlar ro'yxati"), new KeyboardButton("📊 Brokerlar statistikasi") },
+            new[] { new KeyboardButton("➕ Broker qo'shish"), new KeyboardButton("✅ Ovoz tasdiqlash") },
+            new[] { new KeyboardButton("📨 Ommaviy xabar"), new KeyboardButton("✅ OB da tasdiqlanganlar") },
+            new[] { new KeyboardButton("📜 SMS lar tarixi"), new KeyboardButton("📋 Mening ovozlarim") },
+            new[] { new KeyboardButton("📝 Ovoz qo'shish"), new KeyboardButton("📊 Mening statistikam") },
+            new[] { new KeyboardButton("ℹ️ Loyiha ma'lumotlari") }
         }) { ResizeKeyboard = true };
     }
 
@@ -112,6 +114,13 @@ public class AdminHandler
         {
             await _userService.UpdateStateAsync(dbUser.Id, BotState.Default, cancellationToken);
             await _superAdminHandler.SendGuestsPageAsync(botClient, message.Chat.Id, 1, cancellationToken);
+            return;
+        }
+
+        if (text == "🛡 Adminlar ro'yxati" || text == "/admins")
+        {
+            await _userService.UpdateStateAsync(dbUser.Id, BotState.Default, cancellationToken);
+            await _superAdminHandler.SendAdminsPageAsync(botClient, message.Chat.Id, 1, cancellationToken);
             return;
         }
 
@@ -176,6 +185,44 @@ public class AdminHandler
                 text: "Ovoz berish uchun 9 xonali telefon raqamni kiriting.\n+998 avtomatik qo'shiladi.",
                 replyMarkup: BotConstants.GetCancelKeyboard(),
                 cancellationToken: cancellationToken);
+            return;
+        }
+
+        if (text == "✅ OB da tasdiqlanganlar" || text == "/pendingconfirmations")
+        {
+            await _userService.UpdateStateAsync(dbUser.Id, BotState.Default, cancellationToken);
+            var pending = await _voteService.GetPendingConfirmationsAsync(cancellationToken);
+            if (!pending.Any())
+            {
+                await botClient.SendMessage(
+                    chatId: message.Chat.Id,
+                    text: "✅ Kutilayotgan ovoz tasdiqlari yo'q.",
+                    replyMarkup: replyMarkup,
+                    cancellationToken: cancellationToken);
+                return;
+            }
+
+            var responseText = "✅ <b>Botga hali kiritilmagan SMS tasdiqlar:</b>\n\n";
+            for (int i = 0; i < pending.Count; i++)
+            {
+                var p = pending[i];
+                responseText += $"{i + 1}. <b>{p.LastNDigits}</b> ({p.TargetTime:HH:mm})\n";
+            }
+            responseText += "\n<i>Iltimos, ushbu SMS raqamli ovozlarni botga qo'shing.</i>";
+
+            await botClient.SendMessage(
+                chatId: message.Chat.Id,
+                text: responseText,
+                parseMode: ParseMode.Html,
+                replyMarkup: replyMarkup,
+                cancellationToken: cancellationToken);
+            return;
+        }
+
+        if (text == "📜 SMS lar tarixi" || text == "/smshistory")
+        {
+            await _userService.UpdateStateAsync(dbUser.Id, BotState.Default, cancellationToken);
+            await _superAdminHandler.SendConfirmationsHistoryPageAsync(botClient, message.Chat.Id, 1, cancellationToken);
             return;
         }
 
@@ -392,7 +439,7 @@ public class AdminHandler
             return;
         }
 
-        if (data.StartsWith("bpage_") || data.StartsWith("toggle_block_") || data.StartsWith("all_votes_"))
+        if (data.StartsWith("bpage_") || data.StartsWith("toggle_block_") || data.StartsWith("all_votes_") || data.StartsWith("sms_hist_") || data.StartsWith("apage_"))
         {
             await _superAdminHandler.HandleCallbackQueryAsync(botClient, callbackQuery, dbUser, cancellationToken);
             return;

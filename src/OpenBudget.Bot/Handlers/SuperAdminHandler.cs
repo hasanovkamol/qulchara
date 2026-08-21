@@ -60,11 +60,13 @@ public class SuperAdminHandler
         {
             new[] { new KeyboardButton("🌍 Global Statistika"), new KeyboardButton("🛡 Admin tayinlash") },
             new[] { new KeyboardButton("👥 Brokerlar ro'yxati"), new KeyboardButton("🚶‍♂️ Mehmonlar ro'yxati") },
-            new[] { new KeyboardButton("➕ Broker qo'shish"), new KeyboardButton("📢 Ulangan guruhlar") },
-            new[] { new KeyboardButton("⚙️ Sozlamalar"), new KeyboardButton("✅ Ovoz tasdiqlash") },
-            new[] { new KeyboardButton("🔲 QR Kod yuborish"), new KeyboardButton("📨 Ommaviy xabar") },
-            new[] { new KeyboardButton("📋 Mening ovozlarim"), new KeyboardButton("📝 Ovoz qo'shish") },
-            new[] { new KeyboardButton("📊 Mening statistikam"), new KeyboardButton("ℹ️ Loyiha ma'lumotlari") }
+            new[] { new KeyboardButton("🛡 Adminlar ro'yxati"), new KeyboardButton("📢 Ulangan guruhlar") },
+            new[] { new KeyboardButton("➕ Broker qo'shish"), new KeyboardButton("⚙️ Sozlamalar") },
+            new[] { new KeyboardButton("✅ Ovoz tasdiqlash"), new KeyboardButton("✅ OB da tasdiqlanganlar") },
+            new[] { new KeyboardButton("📜 SMS lar tarixi"), new KeyboardButton("🔲 QR Kod yuborish") },
+            new[] { new KeyboardButton("📨 Ommaviy xabar"), new KeyboardButton("📋 Mening ovozlarim") },
+            new[] { new KeyboardButton("📝 Ovoz qo'shish"), new KeyboardButton("📊 Mening statistikam") },
+            new[] { new KeyboardButton("ℹ️ Loyiha ma'lumotlari") }
         }) { ResizeKeyboard = true };
     }
 
@@ -229,6 +231,13 @@ public class SuperAdminHandler
             return;
         }
 
+        if (text == "🛡 Adminlar ro'yxati" || text == "/admins")
+        {
+            await _userService.UpdateStateAsync(dbUser.Id, BotState.Default, cancellationToken);
+            await SendAdminsPageAsync(botClient, message.Chat.Id, 1, cancellationToken);
+            return;
+        }
+
         if (text == "➕ Broker qo'shish")
         {
             await _userService.UpdateStateAsync(dbUser.Id, BotState.WaitingForBrokerIdentifier, cancellationToken);
@@ -299,6 +308,44 @@ public class SuperAdminHandler
                 text: "Ovoz berish uchun 9 xonali telefon raqamni kiriting.\n+998 avtomatik qo'shiladi.",
                 replyMarkup: BotConstants.GetCancelKeyboard(),
                 cancellationToken: cancellationToken);
+            return;
+        }
+
+        if (text == "✅ OB da tasdiqlanganlar" || text == "/pendingconfirmations")
+        {
+            await _userService.UpdateStateAsync(dbUser.Id, BotState.Default, cancellationToken);
+            var pending = await _voteService.GetPendingConfirmationsAsync(cancellationToken);
+            if (!pending.Any())
+            {
+                await botClient.SendMessage(
+                    chatId: message.Chat.Id,
+                    text: "✅ Kutilayotgan ovoz tasdiqlari yo'q.",
+                    replyMarkup: replyMarkup,
+                    cancellationToken: cancellationToken);
+                return;
+            }
+
+            var responseText = "✅ <b>Botga hali kiritilmagan SMS tasdiqlar:</b>\n\n";
+            for (int i = 0; i < pending.Count; i++)
+            {
+                var p = pending[i];
+                responseText += $"{i + 1}. <b>{p.LastNDigits}</b> ({p.TargetTime:HH:mm})\n";
+            }
+            responseText += "\n<i>Iltimos, ushbu SMS raqamli ovozlarni botga qo'shing.</i>";
+
+            await botClient.SendMessage(
+                chatId: message.Chat.Id,
+                text: responseText,
+                parseMode: ParseMode.Html,
+                replyMarkup: replyMarkup,
+                cancellationToken: cancellationToken);
+            return;
+        }
+
+        if (text == "📜 SMS lar tarixi" || text == "/smshistory")
+        {
+            await _userService.UpdateStateAsync(dbUser.Id, BotState.Default, cancellationToken);
+            await SendConfirmationsHistoryPageAsync(botClient, message.Chat.Id, 1, cancellationToken);
             return;
         }
 
@@ -619,6 +666,13 @@ public class SuperAdminHandler
                 await EditGuestsPageAsync(botClient, callbackQuery.Message!.Chat.Id, callbackQuery.Message.MessageId, page, cancellationToken);
             }
         }
+        else if (data.StartsWith("apage_"))
+        {
+            if (int.TryParse(data.Replace("apage_", ""), out int page))
+            {
+                await EditAdminsPageAsync(botClient, callbackQuery.Message!.Chat.Id, callbackQuery.Message.MessageId, page, cancellationToken);
+            }
+        }
         else if (data.StartsWith("make_broker_"))
         {
             if (int.TryParse(data.Replace("make_broker_", ""), out int targetUserId))
@@ -668,6 +722,13 @@ public class SuperAdminHandler
             if (int.TryParse(data.Replace("all_votes_", ""), out int page))
             {
                 await EditAllVotesPageAsync(botClient, callbackQuery.Message!.Chat.Id, callbackQuery.Message.MessageId, page, cancellationToken);
+            }
+        }
+        else if (data.StartsWith("sms_hist_"))
+        {
+            if (int.TryParse(data.Replace("sms_hist_", ""), out int page))
+            {
+                await EditConfirmationsHistoryPageAsync(botClient, callbackQuery.Message!.Chat.Id, callbackQuery.Message.MessageId, page, cancellationToken);
             }
         }
         else if (data.StartsWith("page_"))
@@ -794,6 +855,152 @@ public class SuperAdminHandler
             parseMode: ParseMode.Html,
             replyMarkup: markup,
             cancellationToken: cancellationToken);
+    }
+
+    public async Task SendConfirmationsHistoryPageAsync(ITelegramBotClient botClient, long chatId, int page, CancellationToken cancellationToken)
+    {
+        var (text, inlineKeyboard) = await GenerateConfirmationsHistoryPageAsync(page, cancellationToken);
+        await botClient.SendMessage(chatId, text, parseMode: ParseMode.Html, replyMarkup: inlineKeyboard, cancellationToken: cancellationToken);
+    }
+
+    public async Task EditConfirmationsHistoryPageAsync(ITelegramBotClient botClient, long chatId, int messageId, int page, CancellationToken cancellationToken)
+    {
+        var (text, inlineKeyboard) = await GenerateConfirmationsHistoryPageAsync(page, cancellationToken);
+        await botClient.EditMessageText(chatId, messageId, text, parseMode: ParseMode.Html, replyMarkup: inlineKeyboard, cancellationToken: cancellationToken);
+    }
+
+    private async Task<(string Text, InlineKeyboardMarkup Keyboard)> GenerateConfirmationsHistoryPageAsync(int page, CancellationToken cancellationToken)
+    {
+        int pageSize = 10;
+        var pagedResult = await _voteService.GetConfirmationHistoryPagedAsync(page, pageSize, cancellationToken);
+
+        string text;
+        if (pagedResult.TotalCount == 0)
+        {
+            text = "📜 <b>SMS lar tarixi</b>\n\nHozircha tizimda SMS tasdiqlar tarixi mavjud emas.";
+        }
+        else
+        {
+            text = $"📜 <b>SMS lar tarixi</b>\n\nJami: <b>{pagedResult.TotalCount}</b> ta\n\n";
+
+            int index = (page - 1) * pageSize + 1;
+            foreach (var item in pagedResult.Items)
+            {
+                var statusEmoji = item.Status switch
+                {
+                    VoteConfirmationStatus.Confirmed => "✅",
+                    VoteConfirmationStatus.Pending => "⏳",
+                    VoteConfirmationStatus.Rejected => "❌",
+                    _ => "❔"
+                };
+
+                text += $"<b>{index}.</b> {item.LastNDigits} ({item.TargetTime:HH:mm}) | {statusEmoji}\n";
+                if (item.Status == VoteConfirmationStatus.Confirmed)
+                {
+                    var maskedPhone = item.PhoneNumber != null && item.PhoneNumber.Length >= 4 
+                        ? "+998***" + item.PhoneNumber.Substring(item.PhoneNumber.Length - 3) 
+                        : item.PhoneNumber;
+                    text += $"   👤 <i>Tasdiqlangan:</i> {item.BrokerName} ({maskedPhone})\n";
+                }
+                text += $"   🕐 <i>Kiritildi: {item.CreatedAt:dd-MM-yyyy HH:mm}</i>\n\n";
+                index++;
+            }
+        }
+
+        int totalPages = (int)Math.Ceiling(pagedResult.TotalCount / (double)pageSize);
+        var buttons = new List<InlineKeyboardButton>();
+
+        if (page > 1)
+        {
+            buttons.Add(InlineKeyboardButton.WithCallbackData("⬅️ Oldingi", $"sms_hist_{page - 1}"));
+        }
+        if (page < totalPages)
+        {
+            buttons.Add(InlineKeyboardButton.WithCallbackData("Keyingi ➡️", $"sms_hist_{page + 1}"));
+        }
+
+        var keyboardLayout = new List<InlineKeyboardButton[]>();
+        if (buttons.Any())
+        {
+            keyboardLayout.Add(buttons.ToArray());
+        }
+
+        keyboardLayout.Add(new[] { InlineKeyboardButton.WithCallbackData("🔄 Yangilash", $"sms_hist_{page}") });
+
+        return (text, new InlineKeyboardMarkup(keyboardLayout));
+    }
+
+    public async Task SendAdminsPageAsync(ITelegramBotClient botClient, long chatId, int page, CancellationToken cancellationToken)
+    {
+        var (text, markup) = await GenerateAdminsPageAsync(page, cancellationToken);
+        await botClient.SendMessage(chatId, text, parseMode: ParseMode.Html, replyMarkup: markup, cancellationToken: cancellationToken);
+    }
+
+    public async Task EditAdminsPageAsync(ITelegramBotClient botClient, long chatId, int messageId, int page, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var (text, markup) = await GenerateAdminsPageAsync(page, cancellationToken);
+            await botClient.EditMessageText(chatId, messageId, text, parseMode: ParseMode.Html, replyMarkup: markup, cancellationToken: cancellationToken);
+        }
+        catch { }
+    }
+
+    public async Task<(string Text, InlineKeyboardMarkup? Markup)> GenerateAdminsPageAsync(int page, CancellationToken cancellationToken)
+    {
+        var allUsers = await _userService.GetAllUsersAsync(cancellationToken);
+        var admins = allUsers.Where(u => u.Role == UserRole.Admin || u.Role == UserRole.SuperAdmin).OrderByDescending(u => u.CreatedAt).ToList();
+
+        if (!admins.Any())
+        {
+            return ("🛡 <b>Adminlar topilmadi.</b>", null);
+        }
+
+        int pageSize = 5;
+        var totalPages = (int)Math.Ceiling((double)admins.Count / pageSize);
+        if (page < 1) page = 1;
+        if (page > totalPages) page = totalPages;
+
+        var pagedAdmins = admins.Skip((page - 1) * pageSize).Take(pageSize).ToList();
+
+        var text = $"🛡 <b>Adminlar Ro'yxati</b> (Sahifa {page}/{totalPages}, Jami: {admins.Count} ta)\n" +
+                   $"━━━━━━━━━━━━━━━━━━\n";
+
+        var buttons = new List<InlineKeyboardButton[]>();
+
+        for (int i = 0; i < pagedAdmins.Count; i++)
+        {
+            var a = pagedAdmins[i];
+            var index = (page - 1) * pageSize + i + 1;
+            var usernameText = string.IsNullOrEmpty(a.Username) ? "" : $" (@{a.Username})";
+            var statusBadge = a.IsActive ? "🟢 <b>Faol</b>" : "🔴 <b>Bloklangan</b>";
+            var roleBadge = a.Role == UserRole.SuperAdmin ? "👑 SuperAdmin" : "🛡 Admin";
+
+            text += $"{index}. <b>{a.FullName ?? "Noma'lum"}</b>{usernameText}\n" +
+                    $"   🆔 ID: <code>{a.Id}</code> | 📞 TG ID: <code>{a.TelegramId}</code>\n" +
+                    $"   ⚡️ Holati: {statusBadge} | {roleBadge}\n\n";
+
+            var shortName = a.FullName ?? a.Username ?? a.Id.ToString();
+            string maxName = shortName.Length > 15 ? shortName.Substring(0, 15) + ".." : shortName;
+
+            var actionIcon = a.IsActive ? "🚫 Bloklash" : "✅ Faollashtirish";
+            
+            // Allow SuperAdmin to block/unblock Admin, but do not allow to block another SuperAdmin via this UI 
+            // (or let it be, the service might handle logic, but here we can just skip if it's SuperAdmin)
+            if (a.Role == UserRole.Admin)
+            {
+                buttons.Add(new[] { InlineKeyboardButton.WithCallbackData($"{actionIcon} ({maxName})", $"toggle_block_{a.Id}") });
+            }
+        }
+
+        var navButtons = new List<InlineKeyboardButton>();
+        if (page > 1) navButtons.Add(InlineKeyboardButton.WithCallbackData("◀️", $"apage_{page - 1}"));
+        navButtons.Add(InlineKeyboardButton.WithCallbackData($"🔄 {page}/{totalPages}", $"apage_{page}"));
+        if (page < totalPages) navButtons.Add(InlineKeyboardButton.WithCallbackData("▶️", $"apage_{page + 1}"));
+
+        buttons.Add(navButtons.ToArray());
+
+        return (text, new InlineKeyboardMarkup(buttons));
     }
 
     public async Task SendBrokersPageAsync(ITelegramBotClient botClient, long chatId, int page, CancellationToken cancellationToken)

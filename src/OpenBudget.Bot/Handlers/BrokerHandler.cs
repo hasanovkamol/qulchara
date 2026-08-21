@@ -36,6 +36,7 @@ public class BrokerHandler
     {
         return new ReplyKeyboardMarkup(new[]
         {
+            new[] { new KeyboardButton("✅ Mening tasdiqlanganlarim") },
             new[] { new KeyboardButton("📝 Ovoz qo'shish"), new KeyboardButton("📋 Mening ovozlarim") },
             new[] { new KeyboardButton("📊 Statistikam"), new KeyboardButton("ℹ️ Loyiha ma'lumotlari") }
         }) { ResizeKeyboard = true };
@@ -53,7 +54,7 @@ public class BrokerHandler
             await _userService.UpdateStateAsync(dbUser.Id, BotState.Default, cancellationToken);
             await botClient.SendMessage(
                 chatId: message.Chat.Id,
-                text: "Salom Broker! Ovoz kiritish va statistikani ko'rish uchun quyidagi menyudan foydalaning.",
+                text: "Salom, Broker!\n\nOvoz kiritish va statistikani ko'rish uchun quyidagi menyudan foydalaning.\n\nEslatma: Ovozlar rasmiy OpenBudget tizimida ro'yxatga olinadi, bot esa siz to'plagan ovozlarni kuzatib boradi.",
                 replyMarkup: replyMarkup,
                 cancellationToken: cancellationToken);
             return;
@@ -67,6 +68,13 @@ public class BrokerHandler
                 text: "Amal bekor qilindi.",
                 replyMarkup: replyMarkup,
                 cancellationToken: cancellationToken);
+            return;
+        }
+
+        if (text == "✅ Mening tasdiqlanganlarim" || text == "/myconfirmations")
+        {
+            await _userService.UpdateStateAsync(dbUser.Id, BotState.Default, cancellationToken);
+            await SendConfirmationsHistoryPageAsync(botClient, message.Chat.Id, dbUser.Id, 1, cancellationToken);
             return;
         }
 
@@ -157,6 +165,13 @@ public class BrokerHandler
                 await EditMyVotesAsync(botClient, callbackQuery.Message!.Chat.Id, callbackQuery.Message.MessageId, dbUser.Id, page, cancellationToken);
             }
         }
+        else if (data.StartsWith("sms_hist_"))
+        {
+            if (int.TryParse(data.Replace("sms_hist_", ""), out int page))
+            {
+                await EditConfirmationsHistoryPageAsync(botClient, callbackQuery.Message!.Chat.Id, callbackQuery.Message.MessageId, dbUser.Id, page, cancellationToken);
+            }
+        }
     }
 
     public async Task SendMyVotesAsync(ITelegramBotClient botClient, long chatId, int brokerId, int page, CancellationToken cancellationToken)
@@ -206,6 +221,68 @@ public class BrokerHandler
         });
 
         return (text, markup);
+    }
+
+    public async Task SendConfirmationsHistoryPageAsync(ITelegramBotClient botClient, long chatId, int brokerId, int page, CancellationToken cancellationToken)
+    {
+        var (text, inlineKeyboard) = await GenerateConfirmationsHistoryPageAsync(brokerId, page, cancellationToken);
+        await botClient.SendMessage(chatId, text, parseMode: ParseMode.Html, replyMarkup: inlineKeyboard, cancellationToken: cancellationToken);
+    }
+
+    public async Task EditConfirmationsHistoryPageAsync(ITelegramBotClient botClient, long chatId, int messageId, int brokerId, int page, CancellationToken cancellationToken)
+    {
+        var (text, inlineKeyboard) = await GenerateConfirmationsHistoryPageAsync(brokerId, page, cancellationToken);
+        await botClient.EditMessageText(chatId, messageId, text, parseMode: ParseMode.Html, replyMarkup: inlineKeyboard, cancellationToken: cancellationToken);
+    }
+
+    private async Task<(string Text, InlineKeyboardMarkup Keyboard)> GenerateConfirmationsHistoryPageAsync(int brokerId, int page, CancellationToken cancellationToken)
+    {
+        int pageSize = 10;
+        var pagedResult = await _voteService.GetBrokerConfirmationHistoryPagedAsync(brokerId, page, pageSize, cancellationToken);
+
+        string text;
+        if (pagedResult.TotalCount == 0)
+        {
+            text = "✅ <b>Mening tasdiqlanganlarim</b>\n\nHozircha sizda tasdiqlangan SMSlar tarixi mavjud emas.";
+        }
+        else
+        {
+            text = $"✅ <b>Mening tasdiqlanganlarim</b>\n\nJami: <b>{pagedResult.TotalCount}</b> ta\n\n";
+
+            int index = (page - 1) * pageSize + 1;
+            foreach (var item in pagedResult.Items)
+            {
+                text += $"<b>{index}.</b> {item.LastNDigits} ({item.TargetTime:HH:mm}) | ✅\n";
+                var maskedPhone = item.PhoneNumber != null && item.PhoneNumber.Length >= 4 
+                    ? "+998***" + item.PhoneNumber.Substring(item.PhoneNumber.Length - 3) 
+                    : item.PhoneNumber;
+                text += $"   📱 <i>Raqam:</i> {maskedPhone}\n";
+                text += $"   🕐 <i>Kiritildi: {item.CreatedAt:dd-MM-yyyy HH:mm}</i>\n\n";
+                index++;
+            }
+        }
+
+        int totalPages = (int)Math.Ceiling(pagedResult.TotalCount / (double)pageSize);
+        var buttons = new List<InlineKeyboardButton>();
+
+        if (page > 1)
+        {
+            buttons.Add(InlineKeyboardButton.WithCallbackData("⬅️ Oldingi", $"sms_hist_{page - 1}"));
+        }
+        if (page < totalPages)
+        {
+            buttons.Add(InlineKeyboardButton.WithCallbackData("Keyingi ➡️", $"sms_hist_{page + 1}"));
+        }
+
+        var keyboardLayout = new List<InlineKeyboardButton[]>();
+        if (buttons.Any())
+        {
+            keyboardLayout.Add(buttons.ToArray());
+        }
+
+        keyboardLayout.Add(new[] { InlineKeyboardButton.WithCallbackData("🔄 Yangilash", $"sms_hist_{page}") });
+
+        return (text, new InlineKeyboardMarkup(keyboardLayout));
     }
 }
 

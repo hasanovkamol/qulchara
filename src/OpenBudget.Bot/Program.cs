@@ -26,6 +26,7 @@ builder.Services.AddDbContext<AppDbContext>(options =>
 // Repositories
 builder.Services.AddScoped<IUserRepository, UserRepository>();
 builder.Services.AddScoped<IVoteRepository, VoteRepository>();
+builder.Services.AddScoped<IVoteConfirmationRepository, VoteConfirmationRepository>();
 builder.Services.AddScoped<ITelegramGroupRepository, TelegramGroupRepository>();
 builder.Services.AddScoped<IBotSettingRepository, BotSettingRepository>();
 

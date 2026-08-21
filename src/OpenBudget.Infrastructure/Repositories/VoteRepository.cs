@@ -60,8 +60,8 @@ public class VoteRepository : IVoteRepository
 
     public Task<Vote?> GetPendingVoteToConfirmAsync(string lastNDigits, DateTime targetTime, TimeSpan timeWindow, CancellationToken cancellationToken = default)
     {
-        // Vaqt oralig'i: kiritilgan vaqtdan -5 minut oldindan to kiritilgan/hozirgi vaqtgacha
-        var minTime = targetTime.AddMinutes(-5);
+        // Vaqt oralig'i: kiritilgan vaqtdan -5 soat oldindan to kiritilgan/hozirgi vaqtgacha
+        var minTime = targetTime.AddHours(-5);
         var now = OpenBudget.Domain.Helpers.DateTimeHelper.UzbekistanNow;
         var maxTime = targetTime > now ? targetTime : now;
 
@@ -69,7 +69,7 @@ public class VoteRepository : IVoteRepository
             .Where(x => x.Status == VoteStatus.Pending 
                         && x.PhoneNumber.EndsWith(lastNDigits)
                         && x.VotedAt >= minTime 
-                        && x.VotedAt <= maxTime)
+                        && x.VotedAt.AddMinutes(-5) <= maxTime)
             .OrderBy(x => x.VotedAt) // Birinchi insert bo'yicha confirm qilinadi (ASC)
             .FirstOrDefaultAsync(cancellationToken);
     }

@@ -16,15 +16,18 @@ public class VoteService : IVoteService
     private readonly IVoteRepository _voteRepository;
     private readonly IUserRepository _userRepository;
     private readonly INotificationService _notificationService;
+    private readonly IVoteConfirmationRepository _voteConfirmationRepository;
 
     public VoteService(
         IVoteRepository voteRepository, 
         IUserRepository userRepository,
-        INotificationService notificationService)
+        INotificationService notificationService,
+        IVoteConfirmationRepository voteConfirmationRepository)
     {
         _voteRepository = voteRepository;
         _userRepository = userRepository;
         _notificationService = notificationService;
+        _voteConfirmationRepository = voteConfirmationRepository;
     }
 
     public async Task<(bool Success, string Message)> AddVoteAsync(int brokerId, string rawPhoneNumber, CancellationToken cancellationToken = default)
@@ -50,17 +53,55 @@ public class VoteService : IVoteService
             CreatedAt = DateTimeHelper.UzbekistanNow
         };
 
+        if (validation.FormattedNumber.Length >= 4)
+        {
+            var last4 = validation.FormattedNumber.Substring(validation.FormattedNumber.Length - 4);
+            var pendingConfirmation = await _voteConfirmationRepository.GetMatchingPendingConfirmationAsync(last4);
+            
+            if (pendingConfirmation != null)
+            {
+                vote.Status = VoteStatus.Confirmed;
+                vote.ConfirmedAt = DateTimeHelper.UzbekistanNow;
+                vote.ConfirmedByAdminId = pendingConfirmation.AdminId;
+                await _voteRepository.AddAsync(vote, cancellationToken);
+
+                pendingConfirmation.Status = VoteConfirmationStatus.Confirmed;
+                pendingConfirmation.MatchedVoteId = vote.Id;
+                await _voteConfirmationRepository.UpdateAsync(pendingConfirmation);
+
+                return (true, $"{validation.FormattedNumber} qabul qilindi va AVTOMATIK TASDIQLANDI!");
+            }
+        }
+
         await _voteRepository.AddAsync(vote, cancellationToken);
         return (true, $"{validation.FormattedNumber} qabul qilindi. Kutish holatida.");
     }
 
     public async Task<(bool Success, string Message)> ConfirmVoteAsync(int adminId, string lastNDigits, DateTime targetTime, TimeSpan timeWindow, CancellationToken cancellationToken = default)
     {
+        await _voteConfirmationRepository.RejectExpiredConfirmationsAsync(DateTimeHelper.UzbekistanNow.AddDays(-1));
+
+        var exists = await _voteConfirmationRepository.ExistsPendingConfirmationAsync(lastNDigits, targetTime);
+        if (exists)
+        {
+            return (false, "Bu SMS (raqam va vaqt) allaqachon kutish ro'yxatida mavjud!");
+        }
+
+        var confirmation = new VoteConfirmation
+        {
+            LastNDigits = lastNDigits,
+            TargetTime = targetTime,
+            AdminId = adminId,
+            Status = VoteConfirmationStatus.Pending,
+            CreatedAt = DateTimeHelper.UzbekistanNow
+        };
+        await _voteConfirmationRepository.AddAsync(confirmation);
+
         var vote = await _voteRepository.GetPendingVoteToConfirmAsync(lastNDigits, targetTime, timeWindow, cancellationToken);
         
         if (vote == null)
         {
-            return (false, "Mos keluvchi nomer topilmadi. Raqam yoki vaqtni tekshiring.");
+            return (true, $"Tasdiqlandi va saqlandi: {lastNDigits}. Broker tomonidan ovoz kiritilishi kutilmoqda.");
         }
 
         vote.Status = VoteStatus.Confirmed;
@@ -69,13 +110,17 @@ public class VoteService : IVoteService
 
         await _voteRepository.UpdateAsync(vote, cancellationToken);
 
+        confirmation.Status = VoteConfirmationStatus.Confirmed;
+        confirmation.MatchedVoteId = vote.Id;
+        await _voteConfirmationRepository.UpdateAsync(confirmation);
+
         var broker = await _userRepository.GetByIdAsync(vote.BrokerId, cancellationToken);
         if (broker != null)
         {
             await _notificationService.NotifyBrokerVoteConfirmedAsync(broker.TelegramId, vote.PhoneNumber, cancellationToken);
         }
 
-        return (true, $"Tasdiqlandi: {MaskPhoneNumber(vote.PhoneNumber)}");
+        return (true, $"Darhol tasdiqlandi: {MaskPhoneNumber(vote.PhoneNumber)}");
     }
 
     public async Task<PaginatedResult<VoteDto>> GetBrokerVotesPagedAsync(int brokerId, int page, int pageSize, CancellationToken cancellationToken = default)
@@ -135,6 +180,60 @@ public class VoteService : IVoteService
             ConfirmedVotes = confirmed,
             PendingVotes = pending,
             RejectedVotes = rejected
+        };
+    }
+
+    public async Task<System.Collections.Generic.List<VoteConfirmation>> GetPendingConfirmationsAsync(CancellationToken cancellationToken = default)
+    {
+        await _voteConfirmationRepository.RejectExpiredConfirmationsAsync(DateTimeHelper.UzbekistanNow.AddDays(-1));
+        return await _voteConfirmationRepository.GetPendingConfirmationsAsync();
+    }
+
+    public async Task<PaginatedResult<VoteConfirmationDto>> GetConfirmationHistoryPagedAsync(int page, int pageSize, CancellationToken cancellationToken = default)
+    {
+        var (items, totalCount) = await _voteConfirmationRepository.GetHistoryPagedAsync(page, pageSize);
+
+        var dtos = items.Select(vc => new VoteConfirmationDto
+        {
+            Id = vc.Id,
+            LastNDigits = vc.LastNDigits,
+            TargetTime = vc.TargetTime,
+            Status = vc.Status,
+            CreatedAt = vc.CreatedAt,
+            BrokerName = vc.MatchedVote?.Broker?.FullName ?? "Noma'lum",
+            PhoneNumber = vc.MatchedVote?.PhoneNumber
+        }).ToList();
+
+        return new PaginatedResult<VoteConfirmationDto>
+        {
+            Items = dtos,
+            TotalCount = totalCount,
+            Page = page,
+            PageSize = pageSize
+        };
+    }
+
+    public async Task<PaginatedResult<VoteConfirmationDto>> GetBrokerConfirmationHistoryPagedAsync(int brokerId, int page, int pageSize, CancellationToken cancellationToken = default)
+    {
+        var (items, totalCount) = await _voteConfirmationRepository.GetBrokerHistoryPagedAsync(brokerId, page, pageSize);
+
+        var dtos = items.Select(vc => new VoteConfirmationDto
+        {
+            Id = vc.Id,
+            LastNDigits = vc.LastNDigits,
+            TargetTime = vc.TargetTime,
+            Status = vc.Status,
+            CreatedAt = vc.CreatedAt,
+            BrokerName = vc.MatchedVote?.Broker?.FullName ?? "Noma'lum",
+            PhoneNumber = vc.MatchedVote?.PhoneNumber
+        }).ToList();
+
+        return new PaginatedResult<VoteConfirmationDto>
+        {
+            Items = dtos,
+            TotalCount = totalCount,
+            Page = page,
+            PageSize = pageSize
         };
     }
 

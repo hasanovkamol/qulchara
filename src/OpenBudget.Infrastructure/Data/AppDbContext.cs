@@ -12,6 +12,7 @@ public class AppDbContext : DbContext
 
     public DbSet<User> Users { get; set; } = null!;
     public DbSet<Vote> Votes { get; set; } = null!;
+    public DbSet<VoteConfirmation> VoteConfirmations { get; set; } = null!;
     public DbSet<TelegramGroup> TelegramGroups { get; set; } = null!;
     public DbSet<BotSetting> BotSettings { get; set; } = null!;
 
