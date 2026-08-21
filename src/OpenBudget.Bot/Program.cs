@@ -15,6 +15,8 @@ using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
 
+builder.Services.AddMemoryCache();
+
 // DbContext
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection"),
@@ -29,12 +31,14 @@ builder.Services.AddScoped<IVoteRepository, VoteRepository>();
 builder.Services.AddScoped<IVoteConfirmationRepository, VoteConfirmationRepository>();
 builder.Services.AddScoped<ITelegramGroupRepository, TelegramGroupRepository>();
 builder.Services.AddScoped<IBotSettingRepository, BotSettingRepository>();
+builder.Services.AddScoped<IBotCommandRepository, BotCommandRepository>();
 
 // Services
 builder.Services.AddScoped<IVoteService, VoteService>();
 builder.Services.AddScoped<IUserService, UserService>();
 builder.Services.AddScoped<ITelegramGroupService, TelegramGroupService>();
 builder.Services.AddScoped<IBotSettingService, BotSettingService>();
+builder.Services.AddScoped<IBotCommandService, BotCommandService>();
 builder.Services.AddSingleton<ITokenService, TokenService>();
 builder.Services.AddSingleton<INotificationService, ErrorNotificationService>(); // Includes both Error and Main Bot notifications logic
 builder.Services.AddSingleton<IQrCodeService, OpenBudget.Application.Services.QrCodeService>();

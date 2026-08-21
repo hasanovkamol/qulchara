@@ -27,6 +27,7 @@ public class UpdateHandler
     private readonly IDocumentationService _docService;
     private readonly IBotSettingService _botSettingService;
     private readonly ITelegramGroupService _telegramGroupService;
+    private readonly OpenBudget.Application.Services.IBotCommandService _botCommandService;
 
     public UpdateHandler(
         IUserService userService,
@@ -39,7 +40,8 @@ public class UpdateHandler
         IConfiguration configuration,
         IDocumentationService docService,
         IBotSettingService botSettingService,
-        ITelegramGroupService telegramGroupService)
+        ITelegramGroupService telegramGroupService,
+        OpenBudget.Application.Services.IBotCommandService botCommandService)
     {
         _userService = userService;
         _groupMemberHandler = groupMemberHandler;
@@ -52,6 +54,7 @@ public class UpdateHandler
         _docService = docService;
         _botSettingService = botSettingService;
         _telegramGroupService = telegramGroupService;
+        _botCommandService = botCommandService;
     }
 
     public async Task HandleUpdateAsync(ITelegramBotClient botClient, Update update, CancellationToken cancellationToken)
@@ -128,6 +131,21 @@ public class UpdateHandler
                 replyMarkup: new ReplyKeyboardRemove(),
                 cancellationToken: cancellationToken);
             return;
+        }
+
+        if (!string.IsNullOrEmpty(message.Text) && message.Text.StartsWith("/"))
+        {
+            var commandText = message.Text.Split(' ')[0];
+            bool isCommandActive = await _botCommandService.IsCommandActiveAsync(commandText, cancellationToken);
+            if (!isCommandActive)
+            {
+                await botClient.SendMessage(
+                    chatId: message.Chat.Id,
+                    text: "⚠️ <b>Kechirasiz, ushbu buyruq vaqtincha administratorlar tomonidan o'chirib qo'yilgan.</b>",
+                    parseMode: ParseMode.Html,
+                    cancellationToken: cancellationToken);
+                return;
+            }
         }
 
         if (message.Text == "/start" || message.Text == "/start broker")

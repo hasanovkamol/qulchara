@@ -33,6 +33,7 @@ public class SuperAdminHandler
     private readonly BrokerHandler _brokerHandler;
     private readonly IQrCodeService _qrCodeService;
     private readonly IDocumentationService _docService;
+    private readonly OpenBudget.Application.Services.IBotCommandService _botCommandService;
 
     public SuperAdminHandler(
         IUserService userService, 
@@ -42,7 +43,8 @@ public class SuperAdminHandler
         IConfiguration configuration,
         BrokerHandler brokerHandler,
         IQrCodeService qrCodeService,
-        IDocumentationService docService)
+        IDocumentationService docService,
+        OpenBudget.Application.Services.IBotCommandService botCommandService)
     {
         _userService = userService;
         _voteService = voteService;
@@ -52,6 +54,7 @@ public class SuperAdminHandler
         _brokerHandler = brokerHandler;
         _qrCodeService = qrCodeService;
         _docService = docService;
+        _botCommandService = botCommandService;
     }
 
     public static ReplyKeyboardMarkup GetMenuKeyboard()
@@ -66,7 +69,7 @@ public class SuperAdminHandler
             new[] { new KeyboardButton("📜 SMS lar tarixi"), new KeyboardButton("🔲 QR Kod yuborish") },
             new[] { new KeyboardButton("📨 Ommaviy xabar"), new KeyboardButton("📋 Mening ovozlarim") },
             new[] { new KeyboardButton("📝 Ovoz qo'shish"), new KeyboardButton("📊 Mening statistikam") },
-            new[] { new KeyboardButton("ℹ️ Loyiha ma'lumotlari") }
+            new[] { new KeyboardButton("ℹ️ Loyiha ma'lumotlari"), new KeyboardButton("⚙️ Bot Buyruqlari") }
         }) { ResizeKeyboard = true };
     }
 
@@ -176,6 +179,12 @@ public class SuperAdminHandler
         }
 
 
+        if (text == "⚙️ Bot Buyruqlari" || text == "/botcommands")
+        {
+            await _userService.UpdateStateAsync(dbUser.Id, BotState.Default, cancellationToken);
+            await SendBotCommandsPageAsync(botClient, message.Chat.Id, 1, cancellationToken);
+            return;
+        }
 
         if (text == "🌍 Global Statistika" || text == "/globalstats")
         {
@@ -552,6 +561,35 @@ public class SuperAdminHandler
     {
         var data = callbackQuery.Data;
         if (string.IsNullOrEmpty(data)) return;
+
+        if (data.StartsWith("botcmd_page_"))
+        {
+            if (int.TryParse(data.Replace("botcmd_page_", ""), out int page))
+            {
+                await EditBotCommandsPageAsync(botClient, callbackQuery.Message!.Chat.Id, callbackQuery.Message.MessageId, page, cancellationToken);
+            }
+            return;
+        }
+
+        if (data.StartsWith("botcmd_info_"))
+        {
+            if (int.TryParse(data.Replace("botcmd_info_", ""), out int commandId))
+            {
+                await SendBotCommandInfoAsync(botClient, callbackQuery.Message!.Chat.Id, callbackQuery.Message.MessageId, commandId, cancellationToken);
+            }
+            return;
+        }
+
+        if (data.StartsWith("botcmd_toggle_"))
+        {
+            if (int.TryParse(data.Replace("botcmd_toggle_", ""), out int commandId))
+            {
+                var isNowActive = await _botCommandService.ToggleCommandStatusAsync(commandId, cancellationToken);
+                await botClient.AnswerCallbackQuery(callbackQuery.Id, isNowActive ? "✅ Buyruq faollashtirildi!" : "❌ Buyruq o'chirildi!", cancellationToken: cancellationToken);
+                await SendBotCommandInfoAsync(botClient, callbackQuery.Message!.Chat.Id, callbackQuery.Message.MessageId, commandId, cancellationToken);
+            }
+            return;
+        }
 
         if (data.StartsWith("approve_broker_"))
         {
@@ -1291,6 +1329,65 @@ public class SuperAdminHandler
         buttons.Add(new[] { InlineKeyboardButton.WithCallbackData(guestToggleLabel, "toggle_guest_reg") });
 
         return (text, new InlineKeyboardMarkup(buttons));
+    }
+
+    private async Task SendBotCommandsPageAsync(ITelegramBotClient botClient, long chatId, int page, CancellationToken cancellationToken)
+    {
+        var (text, markup) = await GetBotCommandsPageContentAsync(page, cancellationToken);
+        await botClient.SendMessage(chatId, text, parseMode: ParseMode.Html, replyMarkup: markup, cancellationToken: cancellationToken);
+    }
+
+    private async Task EditBotCommandsPageAsync(ITelegramBotClient botClient, long chatId, int messageId, int page, CancellationToken cancellationToken)
+    {
+        var (text, markup) = await GetBotCommandsPageContentAsync(page, cancellationToken);
+        await botClient.EditMessageText(chatId, messageId, text, parseMode: ParseMode.Html, replyMarkup: markup, cancellationToken: cancellationToken);
+    }
+
+    private async Task<(string Text, InlineKeyboardMarkup Markup)> GetBotCommandsPageContentAsync(int page, CancellationToken cancellationToken)
+    {
+        int pageSize = 10;
+        var (commands, total) = await _botCommandService.GetCommandsPagedAsync(page, pageSize, cancellationToken);
+        
+        string text = $"⚙️ <b>Bot Buyruqlari</b> (Sahifa {page})\nBoshqarish uchun ℹ️ Info tugmasini bosing.";
+        var buttons = new List<InlineKeyboardButton[]>();
+
+        foreach (var cmd in commands)
+        {
+            var statusIcon = cmd.IsActive ? "🟢" : "🔴";
+            buttons.Add(new[]
+            {
+                InlineKeyboardButton.WithCallbackData($"{statusIcon} {cmd.CommandText}", $"botcmd_info_{cmd.Id}"),
+                InlineKeyboardButton.WithCallbackData("ℹ️ Info", $"botcmd_info_{cmd.Id}")
+            });
+        }
+
+        var navRow = new List<InlineKeyboardButton>();
+        if (page > 1) navRow.Add(InlineKeyboardButton.WithCallbackData("⬅️ Oldingi", $"botcmd_page_{page - 1}"));
+        if (page * pageSize < total) navRow.Add(InlineKeyboardButton.WithCallbackData("Keyingi ➡️", $"botcmd_page_{page + 1}"));
+        
+        if (navRow.Any()) buttons.Add(navRow.ToArray());
+
+        return (text, new InlineKeyboardMarkup(buttons));
+    }
+
+    private async Task SendBotCommandInfoAsync(ITelegramBotClient botClient, long chatId, int messageId, int commandId, CancellationToken cancellationToken)
+    {
+        var command = await _botCommandService.GetCommandByIdAsync(commandId, cancellationToken);
+        if (command == null) return;
+
+        string statusText = command.IsActive ? "🟢 Faol" : "🔴 O'chirilgan";
+        string text = $"📌 <b>Buyruq:</b> {command.CommandText}\n\n" +
+                      $"📝 <b>Tavsif:</b> {command.Description}\n" +
+                      $"👥 <b>Kimlar ishlata oladi:</b> {command.AllowedRoles}\n" +
+                      $"⚙️ <b>Holat:</b> {statusText}";
+
+        var buttons = new List<InlineKeyboardButton[]>();
+        
+        string toggleBtnText = command.IsActive ? "🔴 O'chirish" : "🟢 Faollashtirish";
+        buttons.Add(new[] { InlineKeyboardButton.WithCallbackData(toggleBtnText, $"botcmd_toggle_{command.Id}") });
+        buttons.Add(new[] { InlineKeyboardButton.WithCallbackData("🔙 Orqaga", "botcmd_page_1") }); // Returns to page 1
+
+        await botClient.EditMessageText(chatId, messageId, text, parseMode: ParseMode.Html, replyMarkup: new InlineKeyboardMarkup(buttons), cancellationToken: cancellationToken);
     }
 }
 
