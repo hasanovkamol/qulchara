@@ -10,6 +10,7 @@ public interface IVoteConfirmationRepository
     Task<List<VoteConfirmation>> GetPendingConfirmationsAsync();
     Task<bool> ExistsPendingConfirmationAsync(string lastNDigits, System.DateTime targetTime);
     Task<VoteConfirmation?> GetMatchingPendingConfirmationAsync(string lastNDigits);
+    Task<List<VoteConfirmation>> GetAllPendingConfirmationsAsync(CancellationToken cancellationToken = default);
     Task AddAsync(VoteConfirmation confirmation);
     Task UpdateAsync(VoteConfirmation confirmation);
     Task RejectExpiredConfirmationsAsync(System.DateTime expirationThreshold);

@@ -15,6 +15,7 @@ public class AppDbContext : DbContext
     public DbSet<VoteConfirmation> VoteConfirmations { get; set; } = null!;
     public DbSet<TelegramGroup> TelegramGroups { get; set; } = null!;
     public DbSet<BotSetting> BotSettings { get; set; } = null!;
+    public DbSet<BotCommand> BotCommands { get; set; } = null!;
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

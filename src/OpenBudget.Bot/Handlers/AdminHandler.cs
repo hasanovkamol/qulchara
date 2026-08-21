@@ -143,7 +143,7 @@ public class AdminHandler
             var now = OpenBudget.Application.Helpers.DateTimeHelper.UzbekistanNow;
             await botClient.SendMessage(
                 chatId: message.Chat.Id,
-                text: $"Tasdiqlash uchun oxirgi raqamlarni, kunni va vaqtni kiriting.\nFormat: <code>[Raqamlar] [Kun] [Soat:Minut]</code>\nHozirgi vaqt bilan misol: <code>{new string('1', 3)} {now:dd} {now:HH:mm}</code>",
+                text: $"Tasdiqlash uchun oxirgi raqamlarni, vaqtni (va ixtiyoriy kunni) kiriting.\nFormat: <code>[Raqamlar] [Soat:Minut] [Kun]</code>\nMisollar: <code>{new string('1', 3)} {now:HH:mm}</code> yoki <code>{new string('1', 3)} {now:HH:mm} {now:dd}</code>",
                 parseMode: ParseMode.Html,
                 replyMarkup: BotConstants.GetCancelKeyboard(),
                 cancellationToken: cancellationToken);
@@ -274,12 +274,12 @@ public class AdminHandler
             var parts = text.Split(' ', StringSplitOptions.RemoveEmptyEntries);
             var digitsCount = await _settingService.GetLastDigitsCountAsync(cancellationToken);
 
-            if (parts.Length < 3)
+            if (parts.Length < 2)
             {
                 var now = OpenBudget.Application.Helpers.DateTimeHelper.UzbekistanNow;
                 await botClient.SendMessage(
                     chatId: message.Chat.Id,
-                    text: $"Noto'g'ri format.\nFormat: <code>[Raqamlar] [Kun] [Soat:Minut]</code>\nMisol: <code>{new string('1', digitsCount)} {now:dd} {now:HH:mm}</code>",
+                    text: $"Noto'g'ri format.\nFormat: <code>[Raqamlar] [Soat:Minut] [Kun(ixtiyoriy)]</code>\nMisol: <code>{new string('1', digitsCount)} {now:HH:mm}</code>",
                     parseMode: ParseMode.Html,
                     replyMarkup: BotConstants.GetCancelKeyboard(),
                     cancellationToken: cancellationToken);
@@ -297,17 +297,7 @@ public class AdminHandler
                 return;
             }
 
-            if (!int.TryParse(parts[1], out int day) || day < 1 || day > 31)
-            {
-                await botClient.SendMessage(
-                    chatId: message.Chat.Id,
-                    text: "Sana (kun) noto'g'ri kiritildi. Misol: 01 dan 31 gacha.",
-                    replyMarkup: BotConstants.GetCancelKeyboard(),
-                    cancellationToken: cancellationToken);
-                return;
-            }
-
-            if (!TimeSpan.TryParse(parts[2], out TimeSpan time))
+            if (!TimeSpan.TryParse(parts[1], out TimeSpan time))
             {
                 await botClient.SendMessage(
                     chatId: message.Chat.Id,
@@ -318,6 +308,21 @@ public class AdminHandler
             }
 
             var localTimeNow = OpenBudget.Application.Helpers.DateTimeHelper.UzbekistanNow;
+            int day = localTimeNow.Day;
+
+            if (parts.Length >= 3)
+            {
+                if (!int.TryParse(parts[2], out day) || day < 1 || day > 31)
+                {
+                    await botClient.SendMessage(
+                        chatId: message.Chat.Id,
+                        text: "Sana (kun) noto'g'ri kiritildi. Misol: 01 dan 31 gacha.",
+                        replyMarkup: BotConstants.GetCancelKeyboard(),
+                        cancellationToken: cancellationToken);
+                    return;
+                }
+            }
+
             int currentYear = localTimeNow.Year;
             int currentMonth = localTimeNow.Month;
 
@@ -354,7 +359,7 @@ public class AdminHandler
         }
         else if (dbUser.BotState == BotState.WaitingForVote)
         {
-            var result = await _voteService.AddVoteAsync(dbUser.Id, text, cancellationToken);
+            var result = await _voteService.AddVoteAsync(dbUser.Id, text, OpenBudget.Application.Helpers.DateTimeHelper.UzbekistanNow, cancellationToken);
             var replyText = result.Success ? $"✅ {result.Message}" : $"❌ {result.Message}";
             
             await _userService.UpdateStateAsync(dbUser.Id, BotState.Default, cancellationToken);

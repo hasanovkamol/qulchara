@@ -17,20 +17,23 @@ public class VoteService : IVoteService
     private readonly IUserRepository _userRepository;
     private readonly INotificationService _notificationService;
     private readonly IVoteConfirmationRepository _voteConfirmationRepository;
+    private readonly Microsoft.Extensions.Configuration.IConfiguration _configuration;
 
     public VoteService(
         IVoteRepository voteRepository, 
         IUserRepository userRepository,
         INotificationService notificationService,
-        IVoteConfirmationRepository voteConfirmationRepository)
+        IVoteConfirmationRepository voteConfirmationRepository,
+        Microsoft.Extensions.Configuration.IConfiguration configuration)
     {
         _voteRepository = voteRepository;
         _userRepository = userRepository;
         _notificationService = notificationService;
         _voteConfirmationRepository = voteConfirmationRepository;
+        _configuration = configuration;
     }
 
-    public async Task<(bool Success, string Message)> AddVoteAsync(int brokerId, string rawPhoneNumber, CancellationToken cancellationToken = default)
+    public async Task<(bool Success, string Message)> AddVoteAsync(int brokerId, string rawPhoneNumber, DateTime votedAt, CancellationToken cancellationToken = default)
     {
         var validation = PhoneNumberValidator.ValidateAndFormat(rawPhoneNumber);
         if (!validation.IsValid)
@@ -49,32 +52,12 @@ public class VoteService : IVoteService
             BrokerId = brokerId,
             PhoneNumber = validation.FormattedNumber,
             Status = VoteStatus.Pending,
-            VotedAt = DateTimeHelper.UzbekistanNow,
+            VotedAt = votedAt,
             CreatedAt = DateTimeHelper.UzbekistanNow
         };
 
-        if (validation.FormattedNumber.Length >= 4)
-        {
-            var last4 = validation.FormattedNumber.Substring(validation.FormattedNumber.Length - 4);
-            var pendingConfirmation = await _voteConfirmationRepository.GetMatchingPendingConfirmationAsync(last4);
-            
-            if (pendingConfirmation != null)
-            {
-                vote.Status = VoteStatus.Confirmed;
-                vote.ConfirmedAt = DateTimeHelper.UzbekistanNow;
-                vote.ConfirmedByAdminId = pendingConfirmation.AdminId;
-                await _voteRepository.AddAsync(vote, cancellationToken);
-
-                pendingConfirmation.Status = VoteConfirmationStatus.Confirmed;
-                pendingConfirmation.MatchedVoteId = vote.Id;
-                await _voteConfirmationRepository.UpdateAsync(pendingConfirmation);
-
-                return (true, $"{validation.FormattedNumber} qabul qilindi va AVTOMATIK TASDIQLANDI!");
-            }
-        }
-
         await _voteRepository.AddAsync(vote, cancellationToken);
-        return (true, $"{validation.FormattedNumber} qabul qilindi. Kutish holatida.");
+        return (true, $"{validation.FormattedNumber} qabul qilindi. Tasdiqlanishi kutilmoqda.");
     }
 
     public async Task<(bool Success, string Message)> ConfirmVoteAsync(int adminId, string lastNDigits, DateTime targetTime, TimeSpan timeWindow, CancellationToken cancellationToken = default)
@@ -121,6 +104,47 @@ public class VoteService : IVoteService
         }
 
         return (true, $"Darhol tasdiqlandi: {MaskPhoneNumber(vote.PhoneNumber)}");
+    }
+
+    public async Task MatchPendingVotesAsync(CancellationToken cancellationToken = default)
+    {
+        var pendingVotes = await _voteRepository.GetAllPendingVotesAsync(cancellationToken);
+        if (!pendingVotes.Any()) return;
+
+        var pendingConfirmations = await _voteConfirmationRepository.GetAllPendingConfirmationsAsync(cancellationToken);
+        if (!pendingConfirmations.Any()) return;
+
+        var windowHours = int.Parse(_configuration["VoteSettings:ConfirmTimeWindowHours"] ?? "1");
+
+        foreach (var vote in pendingVotes)
+        {
+            if (vote.PhoneNumber.Length < 4) continue;
+            
+            string lastNDigits = vote.PhoneNumber.Substring(vote.PhoneNumber.Length - 4); // TODO: config dan olish mumkin
+
+            var matchingConf = pendingConfirmations
+                .Where(c => c.Status == VoteConfirmationStatus.Pending && c.LastNDigits == lastNDigits)
+                .FirstOrDefault(c => Math.Abs((vote.VotedAt - c.TargetTime).TotalHours) <= windowHours);
+
+            if (matchingConf != null)
+            {
+                vote.Status = VoteStatus.Confirmed;
+                vote.ConfirmedAt = DateTimeHelper.UzbekistanNow;
+                vote.ConfirmedByAdminId = matchingConf.AdminId;
+
+                matchingConf.Status = VoteConfirmationStatus.Confirmed;
+                matchingConf.MatchedVoteId = vote.Id;
+
+                await _voteRepository.UpdateAsync(vote, cancellationToken);
+                await _voteConfirmationRepository.UpdateAsync(matchingConf);
+
+                var broker = await _userRepository.GetByIdAsync(vote.BrokerId, cancellationToken);
+                if (broker != null)
+                {
+                    await _notificationService.NotifyBrokerVoteConfirmedAsync(broker.TelegramId, vote.PhoneNumber, cancellationToken);
+                }
+            }
+        }
     }
 
     public async Task<PaginatedResult<VoteDto>> GetBrokerVotesPagedAsync(int brokerId, int page, int pageSize, CancellationToken cancellationToken = default)

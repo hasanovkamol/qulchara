@@ -45,6 +45,14 @@ public class VoteConfirmationRepository : IVoteConfirmationRepository
             .FirstOrDefaultAsync();
     }
 
+    public async Task<List<VoteConfirmation>> GetAllPendingConfirmationsAsync(CancellationToken cancellationToken = default)
+    {
+        return await _context.VoteConfirmations
+            .Where(vc => vc.Status == VoteConfirmationStatus.Pending)
+            .OrderBy(vc => vc.CreatedAt)
+            .ToListAsync(cancellationToken);
+    }
+
     public async Task AddAsync(VoteConfirmation confirmation)
     {
         await _context.VoteConfirmations.AddAsync(confirmation);

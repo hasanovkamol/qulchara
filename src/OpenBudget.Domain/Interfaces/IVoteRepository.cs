@@ -20,6 +20,7 @@ public interface IVoteRepository
     
     // For Admin confirmation
     Task<Vote?> GetPendingVoteToConfirmAsync(string lastNDigits, DateTime targetTime, TimeSpan timeWindow, CancellationToken cancellationToken = default);
+    Task<List<Vote>> GetAllPendingVotesAsync(CancellationToken cancellationToken = default);
 
     Task AddAsync(Vote vote, CancellationToken cancellationToken = default);
     Task UpdateAsync(Vote vote, CancellationToken cancellationToken = default);

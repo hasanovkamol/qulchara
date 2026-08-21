@@ -57,6 +57,7 @@ builder.Services.AddSingleton<ITelegramBotClient>(sp =>
 
 builder.Services.AddHostedService<BotService>();
 builder.Services.AddHostedService<GroupStatsService>();
+builder.Services.AddHostedService<VoteMatchingBackgroundService>();
 
 // CORS for Mini App
 var allowedOrigins = builder.Configuration.GetSection("MiniApp:AllowedOrigins").Get<string[]>() ?? Array.Empty<string>();

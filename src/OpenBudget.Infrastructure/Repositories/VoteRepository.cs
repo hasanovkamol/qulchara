@@ -25,9 +25,17 @@ public class VoteRepository : IVoteRepository
         return _context.Votes.FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
     }
 
-    public Task<Vote?> GetByPhoneNumberAsync(string phoneNumber, CancellationToken cancellationToken = default)
+    public async Task<List<Vote>> GetAllPendingVotesAsync(CancellationToken cancellationToken = default)
     {
-        return _context.Votes.FirstOrDefaultAsync(x => x.PhoneNumber == phoneNumber, cancellationToken);
+        return await _context.Votes
+            .Where(v => v.Status == VoteStatus.Pending)
+            .OrderBy(v => v.CreatedAt)
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task<Vote?> GetByPhoneNumberAsync(string phoneNumber, CancellationToken cancellationToken = default)
+    {
+        return await _context.Votes.FirstOrDefaultAsync(x => x.PhoneNumber == phoneNumber, cancellationToken);
     }
 
     public async Task<(List<Vote> Items, int TotalCount)> GetByBrokerIdPagedAsync(int brokerId, int page, int pageSize, CancellationToken cancellationToken = default)

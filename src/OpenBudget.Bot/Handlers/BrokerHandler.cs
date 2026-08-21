@@ -81,9 +81,11 @@ public class BrokerHandler
         if (text == "📝 Ovoz qo'shish" || text == "/vote")
         {
             await _userService.UpdateStateAsync(dbUser.Id, BotState.WaitingForVote, cancellationToken);
+            var now = OpenBudget.Application.Helpers.DateTimeHelper.UzbekistanNow;
             await botClient.SendMessage(
                 chatId: message.Chat.Id,
-                text: "Ovoz berish uchun 9 xonali telefon raqamni kiriting.\n+998 avtomatik qo'shiladi.",
+                text: $"Ovoz berish uchun 9 xonali telefon raqamni va ixtiyoriy ravishda vaqtni (kun bilan) kiriting.\nFormat: <code>[TelefonNomer] [Soat:Minut] [Kun]</code>\nMisol: <code>901234567 {now:HH:mm}</code> yoki <code>901234567 {now:HH:mm} {now:dd}</code>\n+998 avtomatik qo'shiladi.",
+                parseMode: ParseMode.Html,
                 replyMarkup: BotConstants.GetCancelKeyboard(),
                 cancellationToken: cancellationToken);
             return;
@@ -133,7 +135,61 @@ public class BrokerHandler
 
         if (dbUser.BotState == BotState.WaitingForVote)
         {
-            var result = await _voteService.AddVoteAsync(dbUser.Id, text, cancellationToken);
+            var parts = text.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            string rawPhoneNumber = parts[0];
+            var localTimeNow = OpenBudget.Application.Helpers.DateTimeHelper.UzbekistanNow;
+            DateTime votedAt = localTimeNow;
+
+            if (parts.Length >= 2)
+            {
+                if (TimeSpan.TryParse(parts[1], out TimeSpan time))
+                {
+                    int day = localTimeNow.Day;
+                    if (parts.Length >= 3)
+                    {
+                        if (!int.TryParse(parts[2], out day) || day < 1 || day > 31)
+                        {
+                            await botClient.SendMessage(
+                                chatId: message.Chat.Id,
+                                text: "Sana (kun) noto'g'ri kiritildi. Misol: 01 dan 31 gacha.",
+                                replyMarkup: BotConstants.GetCancelKeyboard(),
+                                cancellationToken: cancellationToken);
+                            return;
+                        }
+                    }
+
+                    int currentYear = localTimeNow.Year;
+                    int currentMonth = localTimeNow.Month;
+
+                    if (day > localTimeNow.Day && localTimeNow.Day < 5)
+                    {
+                        var lastMonth = localTimeNow.AddMonths(-1);
+                        currentYear = lastMonth.Year;
+                        currentMonth = lastMonth.Month;
+                    }
+
+                    try
+                    {
+                        votedAt = new DateTime(currentYear, currentMonth, day, time.Hours, time.Minutes, 0);
+                    }
+                    catch
+                    {
+                        await botClient.SendMessage(
+                            chatId: message.Chat.Id,
+                            text: "Kiritilgan kun yoki vaqt noto'g'ri. Qaytadan kiriting.",
+                            replyMarkup: BotConstants.GetCancelKeyboard(),
+                            cancellationToken: cancellationToken);
+                        return;
+                    }
+                }
+                else
+                {
+                    // Agar faqat telefon raqam ko'p qismli kiritilsa (masalan 90 123 45 67)
+                    rawPhoneNumber = string.Join("", parts);
+                }
+            }
+
+            var result = await _voteService.AddVoteAsync(dbUser.Id, rawPhoneNumber, votedAt, cancellationToken);
             var replyText = result.Success ? $"✅ {result.Message}" : $"❌ {result.Message}";
             
             await _userService.UpdateStateAsync(dbUser.Id, BotState.Default, cancellationToken);
